@@ -31,7 +31,89 @@ public class QueryExecutor {
         return true;
     }
 
+    private String formatNumber(double val) {
+        if (val == Math.floor(val) && !Double.isInfinite(val)) {
+            return String.valueOf((long) val);
+        }
+        return String.format("%.2f", val);
+    }
+
     public String execute(Query q) {
+
+        if (q.type.equalsIgnoreCase("AGGREGATE")) {
+            if (!schemas.containsKey(q.tableName)) {
+                return "Error: Table '" + q.tableName + "' does not exist.";
+            }
+            List<String> columns = schemas.get(q.tableName);
+            List<List<String>> allRows = btrees.get(q.tableName).getAllRows();
+
+            List<List<String>> rows = new ArrayList<>();
+            for (List<String> row : allRows) {
+                if (q.whereColumns.isEmpty() || matchesWhere(row, columns, q)) {
+                    rows.add(row);
+                }
+            }
+
+            switch (q.aggregateFunction.toUpperCase()) {
+
+                case "COUNT":
+                    return "COUNT(*) = " + rows.size();
+
+                case "MAX": {
+                    if (q.aggregateColumn.equals("*")) return "Error: MAX requires a column name.";
+                    int colIdx = columns.indexOf(q.aggregateColumn);
+                    if (colIdx == -1) return "Error: Column '" + q.aggregateColumn + "' does not exist.";
+                    if (rows.isEmpty()) return "MAX(" + q.aggregateColumn + ") = null";
+                    double max = Double.NEGATIVE_INFINITY;
+                    for (List<String> row : rows) {
+                        try { max = Math.max(max, Double.parseDouble(row.get(colIdx).trim())); }
+                        catch (NumberFormatException e) { return "Error: MAX requires a numeric column."; }
+                    }
+                    return "MAX(" + q.aggregateColumn + ") = " + formatNumber(max);
+                }
+
+                case "MIN": {
+                    if (q.aggregateColumn.equals("*")) return "Error: MIN requires a column name.";
+                    int colIdx = columns.indexOf(q.aggregateColumn);
+                    if (colIdx == -1) return "Error: Column '" + q.aggregateColumn + "' does not exist.";
+                    if (rows.isEmpty()) return "MIN(" + q.aggregateColumn + ") = null";
+                    double min = Double.POSITIVE_INFINITY;
+                    for (List<String> row : rows) {
+                        try { min = Math.min(min, Double.parseDouble(row.get(colIdx).trim())); }
+                        catch (NumberFormatException e) { return "Error: MIN requires a numeric column."; }
+                    }
+                    return "MIN(" + q.aggregateColumn + ") = " + formatNumber(min);
+                }
+
+                case "SUM": {
+                    if (q.aggregateColumn.equals("*")) return "Error: SUM requires a column name.";
+                    int colIdx = columns.indexOf(q.aggregateColumn);
+                    if (colIdx == -1) return "Error: Column '" + q.aggregateColumn + "' does not exist.";
+                    double sum = 0;
+                    for (List<String> row : rows) {
+                        try { sum += Double.parseDouble(row.get(colIdx).trim()); }
+                        catch (NumberFormatException e) { return "Error: SUM requires a numeric column."; }
+                    }
+                    return "SUM(" + q.aggregateColumn + ") = " + formatNumber(sum);
+                }
+
+                case "AVG": {
+                    if (q.aggregateColumn.equals("*")) return "Error: AVG requires a column name.";
+                    int colIdx = columns.indexOf(q.aggregateColumn);
+                    if (colIdx == -1) return "Error: Column '" + q.aggregateColumn + "' does not exist.";
+                    if (rows.isEmpty()) return "AVG(" + q.aggregateColumn + ") = null";
+                    double sum = 0;
+                    for (List<String> row : rows) {
+                        try { sum += Double.parseDouble(row.get(colIdx).trim()); }
+                        catch (NumberFormatException e) { return "Error: AVG requires a numeric column."; }
+                    }
+                    return "AVG(" + q.aggregateColumn + ") = " + formatNumber(sum / rows.size());
+                }
+
+                default:
+                    return "Error: Unknown aggregate function: " + q.aggregateFunction;
+            }
+        }
 
         if (q.type.equalsIgnoreCase("CREATE_INDEX")) {
             if (!schemas.containsKey(q.tableName)) return "Error: Table '" + q.tableName + "' does not exist.";
@@ -122,35 +204,23 @@ public class QueryExecutor {
         if (q.type.equalsIgnoreCase("SELECT")) {
             List<String> leftCols = schemas.get(q.tableName);
 
-            // JOIN query
             if (q.joinTable != null) {
-                if (!schemas.containsKey(q.joinTable)) {
-                    return "Error: Table '" + q.joinTable + "' does not exist.";
-                }
-
+                if (!schemas.containsKey(q.joinTable)) return "Error: Table '" + q.joinTable + "' does not exist.";
                 List<String> rightCols = schemas.get(q.joinTable);
                 List<List<String>> leftRows  = btrees.get(q.tableName).getAllRows();
                 List<List<String>> rightRows = btrees.get(q.joinTable).getAllRows();
-
-                // Parse join columns: table.column ? get column name only
                 String leftColName  = q.joinLeftCol.contains(".")  ? q.joinLeftCol.split("\\.")[1]  : q.joinLeftCol;
                 String rightColName = q.joinRightCol.contains(".") ? q.joinRightCol.split("\\.")[1] : q.joinRightCol;
-
                 int leftIdx  = leftCols.indexOf(leftColName);
                 int rightIdx = rightCols.indexOf(rightColName);
-
                 if (leftIdx  == -1) return "Error: Column '" + leftColName  + "' not found in " + q.tableName;
                 if (rightIdx == -1) return "Error: Column '" + rightColName + "' not found in " + q.joinTable;
-
-                // Build combined headers
                 List<String> combinedCols = new ArrayList<>();
                 for (String c : leftCols)  combinedCols.add(q.tableName  + "." + c);
                 for (String c : rightCols) combinedCols.add(q.joinTable + "." + c);
-
                 StringBuilder result = new StringBuilder();
                 result.append(String.join(" | ", combinedCols)).append("\n");
                 result.append("-".repeat(50)).append("\n");
-
                 boolean anyRows = false;
                 for (List<String> leftRow : leftRows) {
                     for (List<String> rightRow : rightRows) {
@@ -163,22 +233,18 @@ public class QueryExecutor {
                         }
                     }
                 }
-
                 if (!anyRows) return "No matching rows found.";
                 return result.toString();
             }
 
-            // Regular SELECT
             List<List<String>> rows;
             if (q.whereColumns.size() >= 1) {
                 String whereCol = q.whereColumns.get(0);
                 String whereVal = q.whereValues.get(0);
                 if (indexManager.hasIndex(q.tableName, whereCol)) {
-                    System.out.println("Using INDEX on " + whereCol);
                     List<String> found = indexManager.searchIndex(q.tableName, whereCol, whereVal);
                     rows = found != null ? new ArrayList<>(List.of(found)) : new ArrayList<>();
                 } else if (whereCol.equals(leftCols.get(0))) {
-                    System.out.println("Using BTree primary key lookup");
                     List<String> found = btrees.get(q.tableName).search(whereVal);
                     rows = found != null ? new ArrayList<>(List.of(found)) : new ArrayList<>();
                 } else {
@@ -201,14 +267,12 @@ public class QueryExecutor {
             StringBuilder result = new StringBuilder();
             result.append(String.join(" | ", leftCols)).append("\n");
             result.append("-".repeat(30)).append("\n");
-
             boolean anyRows = false;
             for (List<String> row : rows) {
                 if (!q.whereColumns.isEmpty() && !matchesWhere(row, leftCols, q)) continue;
                 result.append(String.join(" | ", row)).append("\n");
                 anyRows = true;
             }
-
             if (!anyRows) return "No rows found.";
             return result.toString();
         }

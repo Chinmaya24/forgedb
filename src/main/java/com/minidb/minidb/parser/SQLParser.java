@@ -33,8 +33,31 @@ public class SQLParser {
 
     private Query parseSelect() {
         Query q = new Query();
-        q.type = "SELECT";
         consume(TokenType.SELECT);
+
+        // Check for aggregate function
+        if (isAggregateToken(peek().type)) {
+            q.type = "AGGREGATE";
+            q.aggregateFunction = next().value.toUpperCase();
+            consume(TokenType.LPAREN);
+            if (peek().type == TokenType.STAR) {
+                consume(TokenType.STAR);
+                q.aggregateColumn = "*";
+            } else {
+                q.aggregateColumn = consume(TokenType.IDENT).value.toLowerCase();
+            }
+            consume(TokenType.RPAREN);
+            consume(TokenType.FROM);
+            q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+            if (!isEOF() && peek().type == TokenType.WHERE) {
+                consume(TokenType.WHERE);
+                parseWhereClause(q);
+            }
+            return q;
+        }
+
+        // Regular SELECT
+        q.type = "SELECT";
         consume(TokenType.STAR);
         consume(TokenType.FROM);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
@@ -45,12 +68,10 @@ public class SQLParser {
                 consume(TokenType.JOIN);
                 q.joinTable = consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.ON);
-                // left: table.column
                 String leftTable = consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.DOT);
                 q.joinLeftCol = leftTable + "." + consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.EQUALS);
-                // right: table.column
                 String rightTable = consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.DOT);
                 q.joinRightCol = rightTable + "." + consume(TokenType.IDENT).value.toLowerCase();
@@ -64,6 +85,12 @@ public class SQLParser {
             } else break;
         }
         return q;
+    }
+
+    private boolean isAggregateToken(TokenType type) {
+        return type == TokenType.COUNT || type == TokenType.MAX ||
+               type == TokenType.MIN  || type == TokenType.SUM ||
+               type == TokenType.AVG;
     }
 
     private Query parseInsert() {

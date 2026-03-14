@@ -19,4 +19,6 @@ public class Query {
     public String joinTable;
     public String joinLeftCol;
     public String joinRightCol;
+    public String aggregateFunction;
+    public String aggregateColumn;
 }

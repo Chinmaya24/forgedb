@@ -89,6 +89,11 @@ public class Lexer {
             case "ON":      return TokenType.ON;
             case "JOIN":    return TokenType.JOIN;
             case "INNER":   return TokenType.INNER;
+            case "COUNT":   return TokenType.COUNT;
+            case "MAX":     return TokenType.MAX;
+            case "MIN":     return TokenType.MIN;
+            case "SUM":     return TokenType.SUM;
+            case "AVG":     return TokenType.AVG;
             default:        return TokenType.IDENT;
         }
     }
