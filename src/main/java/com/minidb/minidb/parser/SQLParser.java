@@ -16,10 +16,8 @@ public class SQLParser {
         Lexer lexer = new Lexer(sql);
         this.tokens = lexer.tokenize();
         this.pos = 0;
-
         Query q = new Query();
         Token first = peek();
-
         switch (first.type) {
             case SELECT: return parseSelect();
             case INSERT: return parseInsert();
@@ -29,9 +27,7 @@ public class SQLParser {
             case DROP:   return parseDrop();
             case ALTER:  return parseAlter();
             case SHOW:   return parseShow();
-            default:
-                q.type = "UNKNOWN";
-                return q;
+            default: q.type = "UNKNOWN"; return q;
         }
     }
 
@@ -42,8 +38,23 @@ public class SQLParser {
         consume(TokenType.STAR);
         consume(TokenType.FROM);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+
         while (!isEOF()) {
-            if (peek().type == TokenType.WHERE) {
+            if (peek().type == TokenType.JOIN || peek().type == TokenType.INNER) {
+                if (peek().type == TokenType.INNER) consume(TokenType.INNER);
+                consume(TokenType.JOIN);
+                q.joinTable = consume(TokenType.IDENT).value.toLowerCase();
+                consume(TokenType.ON);
+                // left: table.column
+                String leftTable = consume(TokenType.IDENT).value.toLowerCase();
+                consume(TokenType.DOT);
+                q.joinLeftCol = leftTable + "." + consume(TokenType.IDENT).value.toLowerCase();
+                consume(TokenType.EQUALS);
+                // right: table.column
+                String rightTable = consume(TokenType.IDENT).value.toLowerCase();
+                consume(TokenType.DOT);
+                q.joinRightCol = rightTable + "." + consume(TokenType.IDENT).value.toLowerCase();
+            } else if (peek().type == TokenType.WHERE) {
                 consume(TokenType.WHERE);
                 parseWhereClause(q);
             } else if (peek().type == TokenType.ORDER) {
@@ -105,8 +116,6 @@ public class SQLParser {
     private Query parseCreate() {
         Query q = new Query();
         consume(TokenType.CREATE);
-
-        // peek at next token to decide CREATE TABLE vs CREATE INDEX
         if (peek().type == TokenType.INDEX) {
             consume(TokenType.INDEX);
             consume(TokenType.ON);
@@ -117,8 +126,6 @@ public class SQLParser {
             consume(TokenType.RPAREN);
             return q;
         }
-
-        // CREATE TABLE
         q.type = "CREATE";
         consume(TokenType.TABLE);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
@@ -137,8 +144,6 @@ public class SQLParser {
     private Query parseDrop() {
         Query q = new Query();
         consume(TokenType.DROP);
-
-        // peek at next token to decide DROP TABLE vs DROP INDEX
         if (peek().type == TokenType.INDEX) {
             consume(TokenType.INDEX);
             consume(TokenType.ON);
@@ -149,8 +154,6 @@ public class SQLParser {
             consume(TokenType.RPAREN);
             return q;
         }
-
-        // DROP TABLE
         q.type = "DROP";
         consume(TokenType.TABLE);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
@@ -180,7 +183,6 @@ public class SQLParser {
     private Query parseShow() {
         Query q = new Query();
         consume(TokenType.SHOW);
-
         if (!isEOF() && peek().type == TokenType.INDEXES) {
             consume(TokenType.INDEXES);
             consume(TokenType.ON);
@@ -188,7 +190,6 @@ public class SQLParser {
             q.tableName = consume(TokenType.IDENT).value.toLowerCase();
             return q;
         }
-
         q.type = "SHOW";
         consume(TokenType.TABLES);
         return q;

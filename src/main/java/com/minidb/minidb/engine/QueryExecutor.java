@@ -33,7 +33,6 @@ public class QueryExecutor {
 
     public String execute(Query q) {
 
-        // INDEX commands bypass planner
         if (q.type.equalsIgnoreCase("CREATE_INDEX")) {
             if (!schemas.containsKey(q.tableName)) return "Error: Table '" + q.tableName + "' does not exist.";
             List<String> columns = schemas.get(q.tableName);
@@ -54,8 +53,7 @@ public class QueryExecutor {
             List<String> idxList = indexManager.getIndexes(q.tableName);
             if (idxList.isEmpty()) return "No indexes on '" + q.tableName + "'.";
             StringBuilder sb = new StringBuilder();
-            sb.append("Indexes on ").append(q.tableName).append("\n");
-            sb.append("-".repeat(20)).append("\n");
+            sb.append("Indexes on ").append(q.tableName).append("\n").append("-".repeat(20)).append("\n");
             for (String col : idxList) sb.append("INDEX ON ").append(q.tableName).append("(").append(col).append(")\n");
             return sb.toString();
         }
@@ -122,19 +120,64 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("SELECT")) {
-            List<String> columns = schemas.get(q.tableName);
-            List<List<String>> rows;
+            List<String> leftCols = schemas.get(q.tableName);
 
-            // Use index if available for WHERE column
+            // JOIN query
+            if (q.joinTable != null) {
+                if (!schemas.containsKey(q.joinTable)) {
+                    return "Error: Table '" + q.joinTable + "' does not exist.";
+                }
+
+                List<String> rightCols = schemas.get(q.joinTable);
+                List<List<String>> leftRows  = btrees.get(q.tableName).getAllRows();
+                List<List<String>> rightRows = btrees.get(q.joinTable).getAllRows();
+
+                // Parse join columns: table.column ? get column name only
+                String leftColName  = q.joinLeftCol.contains(".")  ? q.joinLeftCol.split("\\.")[1]  : q.joinLeftCol;
+                String rightColName = q.joinRightCol.contains(".") ? q.joinRightCol.split("\\.")[1] : q.joinRightCol;
+
+                int leftIdx  = leftCols.indexOf(leftColName);
+                int rightIdx = rightCols.indexOf(rightColName);
+
+                if (leftIdx  == -1) return "Error: Column '" + leftColName  + "' not found in " + q.tableName;
+                if (rightIdx == -1) return "Error: Column '" + rightColName + "' not found in " + q.joinTable;
+
+                // Build combined headers
+                List<String> combinedCols = new ArrayList<>();
+                for (String c : leftCols)  combinedCols.add(q.tableName  + "." + c);
+                for (String c : rightCols) combinedCols.add(q.joinTable + "." + c);
+
+                StringBuilder result = new StringBuilder();
+                result.append(String.join(" | ", combinedCols)).append("\n");
+                result.append("-".repeat(50)).append("\n");
+
+                boolean anyRows = false;
+                for (List<String> leftRow : leftRows) {
+                    for (List<String> rightRow : rightRows) {
+                        if (leftRow.get(leftIdx).trim().equalsIgnoreCase(rightRow.get(rightIdx).trim())) {
+                            List<String> combined = new ArrayList<>();
+                            combined.addAll(leftRow);
+                            combined.addAll(rightRow);
+                            result.append(String.join(" | ", combined)).append("\n");
+                            anyRows = true;
+                        }
+                    }
+                }
+
+                if (!anyRows) return "No matching rows found.";
+                return result.toString();
+            }
+
+            // Regular SELECT
+            List<List<String>> rows;
             if (q.whereColumns.size() >= 1) {
                 String whereCol = q.whereColumns.get(0);
                 String whereVal = q.whereValues.get(0);
-
                 if (indexManager.hasIndex(q.tableName, whereCol)) {
                     System.out.println("Using INDEX on " + whereCol);
                     List<String> found = indexManager.searchIndex(q.tableName, whereCol, whereVal);
                     rows = found != null ? new ArrayList<>(List.of(found)) : new ArrayList<>();
-                } else if (whereCol.equals(columns.get(0))) {
+                } else if (whereCol.equals(leftCols.get(0))) {
                     System.out.println("Using BTree primary key lookup");
                     List<String> found = btrees.get(q.tableName).search(whereVal);
                     rows = found != null ? new ArrayList<>(List.of(found)) : new ArrayList<>();
@@ -146,7 +189,7 @@ public class QueryExecutor {
             }
 
             if (q.orderByColumn != null) {
-                int orderIdx = columns.indexOf(q.orderByColumn);
+                int orderIdx = leftCols.indexOf(q.orderByColumn);
                 rows.sort((a, b) -> {
                     String va = a.get(orderIdx).trim();
                     String vb = b.get(orderIdx).trim();
@@ -156,12 +199,12 @@ public class QueryExecutor {
             }
 
             StringBuilder result = new StringBuilder();
-            result.append(String.join(" | ", columns)).append("\n");
+            result.append(String.join(" | ", leftCols)).append("\n");
             result.append("-".repeat(30)).append("\n");
 
             boolean anyRows = false;
             for (List<String> row : rows) {
-                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) continue;
+                if (!q.whereColumns.isEmpty() && !matchesWhere(row, leftCols, q)) continue;
                 result.append(String.join(" | ", row)).append("\n");
                 anyRows = true;
             }
@@ -173,7 +216,6 @@ public class QueryExecutor {
         if (q.type.equalsIgnoreCase("DELETE")) {
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
-
             if (q.whereColumns.isEmpty()) {
                 int count = rows.size();
                 rows.clear();
@@ -182,7 +224,6 @@ public class QueryExecutor {
                 StorageEngine.save(schemas, tables);
                 return "Deleted " + count + " row(s) from " + q.tableName + ".";
             }
-
             int count = 0;
             Iterator<List<String>> iterator = rows.iterator();
             while (iterator.hasNext()) {
@@ -194,7 +235,6 @@ public class QueryExecutor {
                     count++;
                 }
             }
-
             if (count == 0) return "No rows matched. Nothing deleted.";
             BTreeStorage.saveTree(q.tableName, rows);
             StorageEngine.save(schemas, tables);
@@ -205,7 +245,6 @@ public class QueryExecutor {
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
             int setIdx = columns.indexOf(q.setColumn);
-
             int count = 0;
             for (List<String> row : rows) {
                 if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) continue;
@@ -215,7 +254,6 @@ public class QueryExecutor {
                 indexManager.indexRow(q.tableName, columns, row);
                 count++;
             }
-
             if (count == 0) return "No rows matched. Nothing updated.";
             BTreeStorage.saveTree(q.tableName, rows);
             StorageEngine.save(schemas, tables);

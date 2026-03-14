@@ -24,6 +24,7 @@ public class Lexer {
             else if (c == '(') { tokens.add(new Token(TokenType.LPAREN,    "(")); pos++; }
             else if (c == ')') { tokens.add(new Token(TokenType.RPAREN,    ")")); pos++; }
             else if (c == ';') { tokens.add(new Token(TokenType.SEMICOLON, ";")); pos++; }
+            else if (c == '.') { tokens.add(new Token(TokenType.DOT,       ".")); pos++; }
             else if (c == '\'') { tokens.add(readString()); }
             else if (Character.isDigit(c)) { tokens.add(readNumber()); }
             else if (Character.isLetter(c) || c == '_') { tokens.add(readWord()); }
@@ -86,6 +87,8 @@ public class Lexer {
             case "INDEX":   return TokenType.INDEX;
             case "INDEXES": return TokenType.INDEXES;
             case "ON":      return TokenType.ON;
+            case "JOIN":    return TokenType.JOIN;
+            case "INNER":   return TokenType.INNER;
             default:        return TokenType.IDENT;
         }
     }

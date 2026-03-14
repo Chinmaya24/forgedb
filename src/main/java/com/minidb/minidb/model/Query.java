@@ -16,4 +16,7 @@ public class Query {
     public String alterColumn;
     public String alterType;
     public String indexColumn;
+    public String joinTable;
+    public String joinLeftCol;
+    public String joinRightCol;
 }

@@ -1,13 +1,13 @@
 package com.minidb.minidb.tokenizer;
 
 public enum TokenType {
-
     SELECT, INSERT, UPDATE, DELETE,
     CREATE, DROP, ALTER, SHOW,
     FROM, INTO, VALUES, SET,
     WHERE, AND, OR, ORDER, BY,
     TABLE, TABLES, ADD, COLUMN,
     LIMIT, INDEX, INDEXES, ON,
+    JOIN, INNER, DOT,
 
     STAR, EQUALS, COMMA, LPAREN, RPAREN, SEMICOLON,
 
