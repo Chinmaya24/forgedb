@@ -13,6 +13,18 @@ public class QueryExecutor {
         StorageEngine.load(schemas, tables);
     }
 
+    // Check if a row matches ALL WHERE conditions
+    private boolean matchesWhere(List<String> row, List<String> columns, Query q) {
+        for (int i = 0; i < q.whereColumns.size(); i++) {
+            int colIdx = columns.indexOf(q.whereColumns.get(i));
+            if (colIdx == -1) return false;
+            if (!row.get(colIdx).trim().equalsIgnoreCase(q.whereValues.get(i).trim())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public String execute(Query q) {
 
         if (q.type.equalsIgnoreCase("CREATE")) {
@@ -52,11 +64,10 @@ public class QueryExecutor {
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
 
-            int whereIdx = -1;
-            if (q.whereColumn != null) {
-                whereIdx = columns.indexOf(q.whereColumn);
-                if (whereIdx == -1) {
-                    return "Error: Column '" + q.whereColumn + "' does not exist.";
+            // Validate WHERE columns exist
+            for (String wc : q.whereColumns) {
+                if (columns.indexOf(wc) == -1) {
+                    return "Error: Column '" + wc + "' does not exist.";
                 }
             }
 
@@ -66,19 +77,14 @@ public class QueryExecutor {
 
             boolean anyRows = false;
             for (List<String> row : rows) {
-                if (whereIdx != -1) {
-                    if (!row.get(whereIdx).trim().equalsIgnoreCase(q.whereValue.trim())) {
-                        continue;
-                    }
+                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) {
+                    continue;
                 }
                 result.append(String.join(" | ", row)).append("\n");
                 anyRows = true;
             }
 
-            if (!anyRows) {
-                return "No rows found.";
-            }
-
+            if (!anyRows) return "No rows found.";
             return result.toString();
         }
 
@@ -90,32 +96,24 @@ public class QueryExecutor {
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
 
-            if (q.whereColumn == null) {
+            if (q.whereColumns.isEmpty()) {
                 int count = rows.size();
                 rows.clear();
                 StorageEngine.save(schemas, tables);
                 return "Deleted " + count + " row(s) from " + q.tableName + ".";
             }
 
-            int whereIdx = columns.indexOf(q.whereColumn);
-            if (whereIdx == -1) {
-                return "Error: Column '" + q.whereColumn + "' does not exist.";
-            }
-
             int count = 0;
             Iterator<List<String>> iterator = rows.iterator();
             while (iterator.hasNext()) {
                 List<String> row = iterator.next();
-                if (row.get(whereIdx).trim().equalsIgnoreCase(q.whereValue.trim())) {
+                if (matchesWhere(row, columns, q)) {
                     iterator.remove();
                     count++;
                 }
             }
 
-            if (count == 0) {
-                return "No rows matched. Nothing deleted.";
-            }
-
+            if (count == 0) return "No rows matched. Nothing deleted.";
             StorageEngine.save(schemas, tables);
             return "Deleted " + count + " row(s) from " + q.tableName + ".";
         }
@@ -133,29 +131,16 @@ public class QueryExecutor {
                 return "Error: Column '" + q.setColumn + "' does not exist.";
             }
 
-            int whereIdx = -1;
-            if (q.whereColumn != null) {
-                whereIdx = columns.indexOf(q.whereColumn);
-                if (whereIdx == -1) {
-                    return "Error: Column '" + q.whereColumn + "' does not exist.";
-                }
-            }
-
             int count = 0;
             for (List<String> row : rows) {
-                if (whereIdx != -1) {
-                    if (!row.get(whereIdx).trim().equalsIgnoreCase(q.whereValue.trim())) {
-                        continue;
-                    }
+                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) {
+                    continue;
                 }
                 row.set(setIdx, q.setValue);
                 count++;
             }
 
-            if (count == 0) {
-                return "No rows matched. Nothing updated.";
-            }
-
+            if (count == 0) return "No rows matched. Nothing updated.";
             StorageEngine.save(schemas, tables);
             return "Updated " + count + " row(s) in " + q.tableName + ".";
         }

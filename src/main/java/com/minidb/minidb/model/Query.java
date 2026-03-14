@@ -7,8 +7,8 @@ public class Query {
     public String tableName;
     public List<String> values;
     public List<String> columns;
-    public String whereColumn;
-    public String whereValue;
     public String setColumn;
     public String setValue;
+    public List<String> whereColumns = new java.util.ArrayList<>();
+    public List<String> whereValues  = new java.util.ArrayList<>();
 }

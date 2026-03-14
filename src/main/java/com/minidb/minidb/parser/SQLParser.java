@@ -40,12 +40,9 @@ public class SQLParser {
             String afterFrom = fromParts[1].trim();
 
             if (upper.contains("WHERE")) {
-                String[] whereParts = afterFrom.split("(?i)WHERE");
+                String[] whereParts = afterFrom.split("(?i)\\bWHERE\\b");
                 q.tableName = whereParts[0].trim().toLowerCase();
-                String condition = whereParts[1].trim();
-                String[] condParts = condition.split("=");
-                q.whereColumn = condParts[0].trim().toLowerCase();
-                q.whereValue = condParts[1].trim();
+                parseWhere(whereParts[1].trim(), q);
             } else {
                 q.tableName = afterFrom.split("\\s+")[0].toLowerCase();
             }
@@ -77,12 +74,9 @@ public class SQLParser {
             String afterFrom = fromParts[1].trim();
 
             if (upper.contains("WHERE")) {
-                String[] whereParts = afterFrom.split("(?i)WHERE");
+                String[] whereParts = afterFrom.split("(?i)\\bWHERE\\b");
                 q.tableName = whereParts[0].trim().toLowerCase();
-                String condition = whereParts[1].trim();
-                String[] condParts = condition.split("=");
-                q.whereColumn = condParts[0].trim().toLowerCase();
-                q.whereValue = condParts[1].trim();
+                parseWhere(whereParts[1].trim(), q);
             } else {
                 q.tableName = afterFrom.split("\\s+")[0].toLowerCase();
             }
@@ -98,10 +92,7 @@ public class SQLParser {
             String setPart;
             if (whereIdx != -1) {
                 setPart = trimmed.substring(setIdx + 3, whereIdx).trim();
-                String wherePart = trimmed.substring(whereIdx + 5).trim();
-                String[] condParts = wherePart.split("=");
-                q.whereColumn = condParts[0].trim().toLowerCase();
-                q.whereValue = condParts[1].trim();
+                parseWhere(trimmed.substring(whereIdx + 5).trim(), q);
             } else {
                 setPart = trimmed.substring(setIdx + 3).trim();
             }
@@ -115,5 +106,15 @@ public class SQLParser {
         }
 
         return q;
+    }
+
+    // Splits on " AND " with spaces to avoid splitting words containing "and"
+    private void parseWhere(String whereClause, Query q) {
+        String[] conditions = whereClause.split("(?i)\\s+AND\\s+");
+        for (String condition : conditions) {
+            String[] parts = condition.split("=", 2);
+            q.whereColumns.add(parts[0].trim().toLowerCase());
+            q.whereValues.add(parts[1].trim());
+        }
     }
 }
