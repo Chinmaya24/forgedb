@@ -14,13 +14,10 @@ public class Lexer {
 
     public List<Token> tokenize() {
         List<Token> tokens = new ArrayList<>();
-
         while (pos < input.length()) {
             skipWhitespace();
             if (pos >= input.length()) break;
-
             char c = input.charAt(pos);
-
             if (c == '*')      { tokens.add(new Token(TokenType.STAR,      "*")); pos++; }
             else if (c == '=') { tokens.add(new Token(TokenType.EQUALS,    "=")); pos++; }
             else if (c == ',') { tokens.add(new Token(TokenType.COMMA,     ",")); pos++; }
@@ -32,41 +29,32 @@ public class Lexer {
             else if (Character.isLetter(c) || c == '_') { tokens.add(readWord()); }
             else { tokens.add(new Token(TokenType.UNKNOWN, String.valueOf(c))); pos++; }
         }
-
         tokens.add(new Token(TokenType.EOF, ""));
         return tokens;
     }
 
     private void skipWhitespace() {
-        while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
-            pos++;
-        }
+        while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) pos++;
     }
 
     private Token readNumber() {
         int start = pos;
-        while (pos < input.length() && Character.isDigit(input.charAt(pos))) {
-            pos++;
-        }
+        while (pos < input.length() && Character.isDigit(input.charAt(pos))) pos++;
         return new Token(TokenType.NUMBER, input.substring(start, pos));
     }
 
     private Token readString() {
-        pos++; // skip opening quote
+        pos++;
         int start = pos;
-        while (pos < input.length() && input.charAt(pos) != '\'') {
-            pos++;
-        }
+        while (pos < input.length() && input.charAt(pos) != '\'') pos++;
         String value = input.substring(start, pos);
-        pos++; // skip closing quote
+        pos++;
         return new Token(TokenType.STRING, value);
     }
 
     private Token readWord() {
         int start = pos;
-        while (pos < input.length() && (Character.isLetterOrDigit(input.charAt(pos)) || input.charAt(pos) == '_')) {
-            pos++;
-        }
+        while (pos < input.length() && (Character.isLetterOrDigit(input.charAt(pos)) || input.charAt(pos) == '_')) pos++;
         String word = input.substring(start, pos);
         return new Token(classifyWord(word), word);
     }
@@ -95,6 +83,9 @@ public class Lexer {
             case "ADD":     return TokenType.ADD;
             case "COLUMN":  return TokenType.COLUMN;
             case "LIMIT":   return TokenType.LIMIT;
+            case "INDEX":   return TokenType.INDEX;
+            case "INDEXES": return TokenType.INDEXES;
+            case "ON":      return TokenType.ON;
             default:        return TokenType.IDENT;
         }
     }

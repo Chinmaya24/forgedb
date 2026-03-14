@@ -35,7 +35,6 @@ public class SQLParser {
         }
     }
 
-    // SELECT * FROM <table> [WHERE ...] [ORDER BY ...]
     private Query parseSelect() {
         Query q = new Query();
         q.type = "SELECT";
@@ -43,7 +42,6 @@ public class SQLParser {
         consume(TokenType.STAR);
         consume(TokenType.FROM);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
-
         while (!isEOF()) {
             if (peek().type == TokenType.WHERE) {
                 consume(TokenType.WHERE);
@@ -52,14 +50,11 @@ public class SQLParser {
                 consume(TokenType.ORDER);
                 consume(TokenType.BY);
                 q.orderByColumn = consume(TokenType.IDENT).value.toLowerCase();
-            } else {
-                break;
-            }
+            } else break;
         }
         return q;
     }
 
-    // INSERT INTO <table> VALUES (v1, v2, ...)
     private Query parseInsert() {
         Query q = new Query();
         q.type = "INSERT";
@@ -68,11 +63,9 @@ public class SQLParser {
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
         consume(TokenType.VALUES);
         consume(TokenType.LPAREN);
-
         List<String> values = new ArrayList<>();
         while (peek().type != TokenType.RPAREN && !isEOF()) {
-            Token val = next();
-            values.add(val.value);
+            values.add(next().value);
             if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
         }
         consume(TokenType.RPAREN);
@@ -80,7 +73,6 @@ public class SQLParser {
         return q;
     }
 
-    // UPDATE <table> SET col = val [WHERE ...]
     private Query parseUpdate() {
         Query q = new Query();
         q.type = "UPDATE";
@@ -90,7 +82,6 @@ public class SQLParser {
         q.setColumn = consume(TokenType.IDENT).value.toLowerCase();
         consume(TokenType.EQUALS);
         q.setValue = next().value;
-
         if (!isEOF() && peek().type == TokenType.WHERE) {
             consume(TokenType.WHERE);
             parseWhereClause(q);
@@ -98,14 +89,12 @@ public class SQLParser {
         return q;
     }
 
-    // DELETE FROM <table> [WHERE ...]
     private Query parseDelete() {
         Query q = new Query();
         q.type = "DELETE";
         consume(TokenType.DELETE);
         consume(TokenType.FROM);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
-
         if (!isEOF() && peek().type == TokenType.WHERE) {
             consume(TokenType.WHERE);
             parseWhereClause(q);
@@ -113,20 +102,31 @@ public class SQLParser {
         return q;
     }
 
-    // CREATE TABLE <name> (col1 TYPE, col2 TYPE, ...)
     private Query parseCreate() {
         Query q = new Query();
-        q.type = "CREATE";
         consume(TokenType.CREATE);
+
+        // peek at next token to decide CREATE TABLE vs CREATE INDEX
+        if (peek().type == TokenType.INDEX) {
+            consume(TokenType.INDEX);
+            consume(TokenType.ON);
+            q.type = "CREATE_INDEX";
+            q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+            consume(TokenType.LPAREN);
+            q.indexColumn = consume(TokenType.IDENT).value.toLowerCase();
+            consume(TokenType.RPAREN);
+            return q;
+        }
+
+        // CREATE TABLE
+        q.type = "CREATE";
         consume(TokenType.TABLE);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
         consume(TokenType.LPAREN);
-
         List<String> columns = new ArrayList<>();
         while (peek().type != TokenType.RPAREN && !isEOF()) {
-            String colName = consume(TokenType.IDENT).value.toLowerCase();
-            columns.add(colName);
-            if (peek().type == TokenType.IDENT) next(); // skip type (INT, TEXT etc)
+            columns.add(consume(TokenType.IDENT).value.toLowerCase());
+            if (peek().type == TokenType.IDENT) next();
             if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
         }
         consume(TokenType.RPAREN);
@@ -134,32 +134,40 @@ public class SQLParser {
         return q;
     }
 
-    // DROP TABLE <name>
     private Query parseDrop() {
         Query q = new Query();
-        q.type = "DROP";
         consume(TokenType.DROP);
+
+        // peek at next token to decide DROP TABLE vs DROP INDEX
+        if (peek().type == TokenType.INDEX) {
+            consume(TokenType.INDEX);
+            consume(TokenType.ON);
+            q.type = "DROP_INDEX";
+            q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+            consume(TokenType.LPAREN);
+            q.indexColumn = consume(TokenType.IDENT).value.toLowerCase();
+            consume(TokenType.RPAREN);
+            return q;
+        }
+
+        // DROP TABLE
+        q.type = "DROP";
         consume(TokenType.TABLE);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
         return q;
     }
 
-    // ALTER TABLE <name> ADD <col> <type>
-    // ALTER TABLE <name> DROP COLUMN <col>
     private Query parseAlter() {
         Query q = new Query();
         q.type = "ALTER";
         consume(TokenType.ALTER);
         consume(TokenType.TABLE);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
-
         if (peek().type == TokenType.ADD) {
             consume(TokenType.ADD);
             q.alterAction = "ADD";
             q.alterColumn = consume(TokenType.IDENT).value.toLowerCase();
-            if (!isEOF() && peek().type == TokenType.IDENT) {
-                q.alterType = next().value.toUpperCase();
-            }
+            if (!isEOF() && peek().type == TokenType.IDENT) q.alterType = next().value.toUpperCase();
         } else if (peek().type == TokenType.DROP) {
             consume(TokenType.DROP);
             consume(TokenType.COLUMN);
@@ -169,23 +177,29 @@ public class SQLParser {
         return q;
     }
 
-    // SHOW TABLES
     private Query parseShow() {
         Query q = new Query();
-        q.type = "SHOW";
         consume(TokenType.SHOW);
+
+        if (!isEOF() && peek().type == TokenType.INDEXES) {
+            consume(TokenType.INDEXES);
+            consume(TokenType.ON);
+            q.type = "SHOW_INDEXES";
+            q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+            return q;
+        }
+
+        q.type = "SHOW";
         consume(TokenType.TABLES);
         return q;
     }
 
-    // Parses: col = val [AND col = val ...]
     private void parseWhereClause(Query q) {
         String col = consume(TokenType.IDENT).value.toLowerCase();
         consume(TokenType.EQUALS);
         String val = next().value;
         q.whereColumns.add(col);
         q.whereValues.add(val);
-
         while (!isEOF() && peek().type == TokenType.AND) {
             consume(TokenType.AND);
             col = consume(TokenType.IDENT).value.toLowerCase();
@@ -196,25 +210,13 @@ public class SQLParser {
         }
     }
 
-    // Helper methods
-    private Token peek() {
-        return tokens.get(pos);
-    }
-
-    private Token next() {
-        return tokens.get(pos++);
-    }
-
+    private Token peek() { return tokens.get(pos); }
+    private Token next() { return tokens.get(pos++); }
     private Token consume(TokenType expected) {
         Token t = tokens.get(pos);
-        if (t.type != expected) {
-            throw new RuntimeException("Expected " + expected + " but got " + t.type + " ('" + t.value + "')");
-        }
+        if (t.type != expected) throw new RuntimeException("Expected " + expected + " but got " + t.type + " ('" + t.value + "')");
         pos++;
         return t;
     }
-
-    private boolean isEOF() {
-        return tokens.get(pos).type == TokenType.EOF;
-    }
+    private boolean isEOF() { return tokens.get(pos).type == TokenType.EOF; }
 }

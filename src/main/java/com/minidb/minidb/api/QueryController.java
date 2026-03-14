@@ -18,21 +18,25 @@ public class QueryController {
 
     @PostMapping
     public String runQuery(@RequestBody String sql) {
-        sql = sql.trim();
+        try {
+            sql = sql.trim();
 
-        // EXPLAIN support
-        if (sql.toUpperCase().startsWith("EXPLAIN")) {
-            String innerSql = sql.substring(7).trim();
-            Query query = parser.parse(innerSql);
-            Map<String, List<String>> schemas = new HashMap<>();
-            Map<String, List<List<String>>> tables = new HashMap<>();
-            StorageEngine.load(schemas, tables);
-            QueryPlanner planner = new QueryPlanner(schemas, tables);
-            QueryPlan plan = planner.plan(query);
-            return plan.toString();
+            if (sql.toUpperCase().startsWith("EXPLAIN")) {
+                String innerSql = sql.substring(7).trim();
+                Query query = parser.parse(innerSql);
+                Map<String, List<String>> schemas = new HashMap<>();
+                Map<String, List<List<String>>> tables = new HashMap<>();
+                StorageEngine.load(schemas, tables);
+                QueryPlanner planner = new QueryPlanner(schemas, tables);
+                QueryPlan plan = planner.plan(query);
+                return plan.toString();
+            }
+
+            Query query = parser.parse(sql);
+            return executor.execute(query);
+
+        } catch (Exception e) {
+            return "Error: " + e.getMessage() + " | " + e.getClass().getSimpleName();
         }
-
-        Query query = parser.parse(sql);
-        return executor.execute(query);
     }
 }

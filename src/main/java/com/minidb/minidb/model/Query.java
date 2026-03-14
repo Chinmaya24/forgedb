@@ -15,4 +15,5 @@ public class Query {
     public String alterAction;
     public String alterColumn;
     public String alterType;
+    public String indexColumn;
 }

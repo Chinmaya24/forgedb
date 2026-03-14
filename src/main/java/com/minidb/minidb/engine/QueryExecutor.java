@@ -13,10 +13,10 @@ public class QueryExecutor {
     private static Map<String, List<String>> schemas = new HashMap<>();
     private static Map<String, List<List<String>>> tables = new HashMap<>();
     private static Map<String, BTree> btrees = new HashMap<>();
+    private static IndexManager indexManager = new IndexManager();
 
     static {
         StorageEngine.load(schemas, tables);
-        // Load BTrees for all existing tables
         for (String tableName : schemas.keySet()) {
             btrees.put(tableName, BTreeStorage.loadTree(tableName, 0));
         }
@@ -26,14 +26,39 @@ public class QueryExecutor {
         for (int i = 0; i < q.whereColumns.size(); i++) {
             int colIdx = columns.indexOf(q.whereColumns.get(i));
             if (colIdx == -1) return false;
-            if (!row.get(colIdx).trim().equalsIgnoreCase(q.whereValues.get(i).trim())) {
-                return false;
-            }
+            if (!row.get(colIdx).trim().equalsIgnoreCase(q.whereValues.get(i).trim())) return false;
         }
         return true;
     }
 
     public String execute(Query q) {
+
+        // INDEX commands bypass planner
+        if (q.type.equalsIgnoreCase("CREATE_INDEX")) {
+            if (!schemas.containsKey(q.tableName)) return "Error: Table '" + q.tableName + "' does not exist.";
+            List<String> columns = schemas.get(q.tableName);
+            if (!columns.contains(q.indexColumn)) return "Error: Column '" + q.indexColumn + "' does not exist.";
+            if (indexManager.hasIndex(q.tableName, q.indexColumn)) return "Error: Index on '" + q.indexColumn + "' already exists.";
+            indexManager.createIndex(q.tableName, q.indexColumn, columns, tables.get(q.tableName));
+            return "Index created on " + q.tableName + "(" + q.indexColumn + ").";
+        }
+
+        if (q.type.equalsIgnoreCase("DROP_INDEX")) {
+            if (!indexManager.hasIndex(q.tableName, q.indexColumn)) return "Error: No index on '" + q.indexColumn + "'.";
+            indexManager.dropIndex(q.tableName, q.indexColumn);
+            return "Index on " + q.tableName + "(" + q.indexColumn + ") dropped.";
+        }
+
+        if (q.type.equalsIgnoreCase("SHOW_INDEXES")) {
+            if (!schemas.containsKey(q.tableName)) return "Error: Table '" + q.tableName + "' does not exist.";
+            List<String> idxList = indexManager.getIndexes(q.tableName);
+            if (idxList.isEmpty()) return "No indexes on '" + q.tableName + "'.";
+            StringBuilder sb = new StringBuilder();
+            sb.append("Indexes on ").append(q.tableName).append("\n");
+            sb.append("-".repeat(20)).append("\n");
+            for (String col : idxList) sb.append("INDEX ON ").append(q.tableName).append("(").append(col).append(")\n");
+            return sb.toString();
+        }
 
         QueryPlanner planner = new QueryPlanner(schemas, tables);
         QueryPlan plan = planner.plan(q);
@@ -60,6 +85,7 @@ public class QueryExecutor {
             schemas.remove(q.tableName);
             tables.remove(q.tableName);
             btrees.remove(q.tableName);
+            indexManager.dropAllIndexes(q.tableName);
             BTreeStorage.deleteTree(q.tableName);
             StorageEngine.save(schemas, tables);
             return "Table '" + q.tableName + "' dropped successfully.";
@@ -68,8 +94,6 @@ public class QueryExecutor {
         if (q.type.equalsIgnoreCase("ALTER")) {
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
-            BTree tree = btrees.get(q.tableName);
-
             if (q.alterAction.equalsIgnoreCase("ADD")) {
                 columns.add(q.alterColumn);
                 for (List<String> row : rows) row.add("");
@@ -80,9 +104,7 @@ public class QueryExecutor {
             if (q.alterAction.equalsIgnoreCase("DROP")) {
                 int colIdx = columns.indexOf(q.alterColumn);
                 columns.remove(colIdx);
-                for (List<String> row : rows) {
-                    if (colIdx < row.size()) row.remove(colIdx);
-                }
+                for (List<String> row : rows) { if (colIdx < row.size()) row.remove(colIdx); }
                 btrees.put(q.tableName, rebuildTree(q.tableName, rows));
                 StorageEngine.save(schemas, tables);
                 return "Column '" + q.alterColumn + "' removed from " + q.tableName + ".";
@@ -93,6 +115,7 @@ public class QueryExecutor {
             List<String> row = new ArrayList<>(q.values);
             tables.get(q.tableName).add(row);
             btrees.get(q.tableName).insert(row.get(0), row);
+            indexManager.indexRow(q.tableName, schemas.get(q.tableName), row);
             BTreeStorage.saveTree(q.tableName, tables.get(q.tableName));
             StorageEngine.save(schemas, tables);
             return "Inserted into " + q.tableName + ": " + row;
@@ -100,30 +123,35 @@ public class QueryExecutor {
 
         if (q.type.equalsIgnoreCase("SELECT")) {
             List<String> columns = schemas.get(q.tableName);
-            BTree tree = btrees.get(q.tableName);
-
-            // Use BTree for exact key lookup on first column
             List<List<String>> rows;
-            if (q.whereColumns.size() == 1 &&
-                q.whereColumns.get(0).equals(columns.get(0))) {
-                System.out.println("Using BTree index lookup for key: " + q.whereValues.get(0));
-                List<String> found = tree.search(q.whereValues.get(0));
-                rows = found != null ? List.of(found) : new ArrayList<>();
+
+            // Use index if available for WHERE column
+            if (q.whereColumns.size() >= 1) {
+                String whereCol = q.whereColumns.get(0);
+                String whereVal = q.whereValues.get(0);
+
+                if (indexManager.hasIndex(q.tableName, whereCol)) {
+                    System.out.println("Using INDEX on " + whereCol);
+                    List<String> found = indexManager.searchIndex(q.tableName, whereCol, whereVal);
+                    rows = found != null ? new ArrayList<>(List.of(found)) : new ArrayList<>();
+                } else if (whereCol.equals(columns.get(0))) {
+                    System.out.println("Using BTree primary key lookup");
+                    List<String> found = btrees.get(q.tableName).search(whereVal);
+                    rows = found != null ? new ArrayList<>(List.of(found)) : new ArrayList<>();
+                } else {
+                    rows = new ArrayList<>(btrees.get(q.tableName).getAllRows());
+                }
             } else {
-                rows = new ArrayList<>(tree.getAllRows());
+                rows = new ArrayList<>(btrees.get(q.tableName).getAllRows());
             }
 
             if (q.orderByColumn != null) {
                 int orderIdx = columns.indexOf(q.orderByColumn);
-                rows = new ArrayList<>(rows);
                 rows.sort((a, b) -> {
                     String va = a.get(orderIdx).trim();
                     String vb = b.get(orderIdx).trim();
-                    try {
-                        return Double.compare(Double.parseDouble(va), Double.parseDouble(vb));
-                    } catch (NumberFormatException e) {
-                        return va.compareToIgnoreCase(vb);
-                    }
+                    try { return Double.compare(Double.parseDouble(va), Double.parseDouble(vb)); }
+                    catch (NumberFormatException e) { return va.compareToIgnoreCase(vb); }
                 });
             }
 
@@ -145,7 +173,6 @@ public class QueryExecutor {
         if (q.type.equalsIgnoreCase("DELETE")) {
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
-            BTree tree = btrees.get(q.tableName);
 
             if (q.whereColumns.isEmpty()) {
                 int count = rows.size();
@@ -161,7 +188,8 @@ public class QueryExecutor {
             while (iterator.hasNext()) {
                 List<String> row = iterator.next();
                 if (matchesWhere(row, columns, q)) {
-                    tree.delete(row.get(0));
+                    btrees.get(q.tableName).delete(row.get(0));
+                    indexManager.removeFromIndexes(q.tableName, columns, row);
                     iterator.remove();
                     count++;
                 }
@@ -181,9 +209,10 @@ public class QueryExecutor {
             int count = 0;
             for (List<String> row : rows) {
                 if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) continue;
-                String key = row.get(0);
+                indexManager.removeFromIndexes(q.tableName, columns, row);
                 row.set(setIdx, q.setValue);
-                btrees.get(q.tableName).update(key, setIdx, q.setValue);
+                btrees.get(q.tableName).update(row.get(0), setIdx, q.setValue);
+                indexManager.indexRow(q.tableName, columns, row);
                 count++;
             }
 
