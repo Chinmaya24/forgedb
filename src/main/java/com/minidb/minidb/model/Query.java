@@ -11,7 +11,10 @@ public class Query {
     public String setValue;
     public List<String> whereColumns = new java.util.ArrayList<>();
     public List<String> whereValues  = new java.util.ArrayList<>();
+    public List<String> whereOps     = new java.util.ArrayList<>();
+    public List<String> whereConnectors = new java.util.ArrayList<>();
     public String orderByColumn;
+    public String orderByDirection = "ASC";
     public String alterAction;
     public String alterColumn;
     public String alterType;
@@ -21,4 +24,6 @@ public class Query {
     public String joinRightCol;
     public String aggregateFunction;
     public String aggregateColumn;
+    public int limit = -1;
+    public int offset = 0;
 }

@@ -35,28 +35,19 @@ public class SQLParser {
         Query q = new Query();
         consume(TokenType.SELECT);
 
-        // Check for aggregate function
         if (isAggregateToken(peek().type)) {
             q.type = "AGGREGATE";
             q.aggregateFunction = next().value.toUpperCase();
             consume(TokenType.LPAREN);
-            if (peek().type == TokenType.STAR) {
-                consume(TokenType.STAR);
-                q.aggregateColumn = "*";
-            } else {
-                q.aggregateColumn = consume(TokenType.IDENT).value.toLowerCase();
-            }
+            if (peek().type == TokenType.STAR) { consume(TokenType.STAR); q.aggregateColumn = "*"; }
+            else { q.aggregateColumn = consume(TokenType.IDENT).value.toLowerCase(); }
             consume(TokenType.RPAREN);
             consume(TokenType.FROM);
             q.tableName = consume(TokenType.IDENT).value.toLowerCase();
-            if (!isEOF() && peek().type == TokenType.WHERE) {
-                consume(TokenType.WHERE);
-                parseWhereClause(q);
-            }
+            if (!isEOF() && peek().type == TokenType.WHERE) { consume(TokenType.WHERE); parseWhereClause(q); }
             return q;
         }
 
-        // Regular SELECT
         q.type = "SELECT";
         consume(TokenType.STAR);
         consume(TokenType.FROM);
@@ -68,13 +59,13 @@ public class SQLParser {
                 consume(TokenType.JOIN);
                 q.joinTable = consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.ON);
-                String leftTable = consume(TokenType.IDENT).value.toLowerCase();
+                String lt = consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.DOT);
-                q.joinLeftCol = leftTable + "." + consume(TokenType.IDENT).value.toLowerCase();
+                q.joinLeftCol = lt + "." + consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.EQUALS);
-                String rightTable = consume(TokenType.IDENT).value.toLowerCase();
+                String rt = consume(TokenType.IDENT).value.toLowerCase();
                 consume(TokenType.DOT);
-                q.joinRightCol = rightTable + "." + consume(TokenType.IDENT).value.toLowerCase();
+                q.joinRightCol = rt + "." + consume(TokenType.IDENT).value.toLowerCase();
             } else if (peek().type == TokenType.WHERE) {
                 consume(TokenType.WHERE);
                 parseWhereClause(q);
@@ -82,15 +73,18 @@ public class SQLParser {
                 consume(TokenType.ORDER);
                 consume(TokenType.BY);
                 q.orderByColumn = consume(TokenType.IDENT).value.toLowerCase();
+                if (!isEOF() && peek().type == TokenType.DESC) { consume(TokenType.DESC); q.orderByDirection = "DESC"; }
+                else if (!isEOF() && peek().type == TokenType.ASC) { consume(TokenType.ASC); q.orderByDirection = "ASC"; }
+            } else if (peek().type == TokenType.LIMIT) {
+                consume(TokenType.LIMIT);
+                q.limit = Integer.parseInt(consume(TokenType.NUMBER).value);
+                if (!isEOF() && peek().type == TokenType.OFFSET) {
+                    consume(TokenType.OFFSET);
+                    q.offset = Integer.parseInt(consume(TokenType.NUMBER).value);
+                }
             } else break;
         }
         return q;
-    }
-
-    private boolean isAggregateToken(TokenType type) {
-        return type == TokenType.COUNT || type == TokenType.MAX ||
-               type == TokenType.MIN  || type == TokenType.SUM ||
-               type == TokenType.AVG;
     }
 
     private Query parseInsert() {
@@ -120,10 +114,7 @@ public class SQLParser {
         q.setColumn = consume(TokenType.IDENT).value.toLowerCase();
         consume(TokenType.EQUALS);
         q.setValue = next().value;
-        if (!isEOF() && peek().type == TokenType.WHERE) {
-            consume(TokenType.WHERE);
-            parseWhereClause(q);
-        }
+        if (!isEOF() && peek().type == TokenType.WHERE) { consume(TokenType.WHERE); parseWhereClause(q); }
         return q;
     }
 
@@ -133,10 +124,7 @@ public class SQLParser {
         consume(TokenType.DELETE);
         consume(TokenType.FROM);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
-        if (!isEOF() && peek().type == TokenType.WHERE) {
-            consume(TokenType.WHERE);
-            parseWhereClause(q);
-        }
+        if (!isEOF() && peek().type == TokenType.WHERE) { consume(TokenType.WHERE); parseWhereClause(q); }
         return q;
     }
 
@@ -144,8 +132,7 @@ public class SQLParser {
         Query q = new Query();
         consume(TokenType.CREATE);
         if (peek().type == TokenType.INDEX) {
-            consume(TokenType.INDEX);
-            consume(TokenType.ON);
+            consume(TokenType.INDEX); consume(TokenType.ON);
             q.type = "CREATE_INDEX";
             q.tableName = consume(TokenType.IDENT).value.toLowerCase();
             consume(TokenType.LPAREN);
@@ -172,8 +159,7 @@ public class SQLParser {
         Query q = new Query();
         consume(TokenType.DROP);
         if (peek().type == TokenType.INDEX) {
-            consume(TokenType.INDEX);
-            consume(TokenType.ON);
+            consume(TokenType.INDEX); consume(TokenType.ON);
             q.type = "DROP_INDEX";
             q.tableName = consume(TokenType.IDENT).value.toLowerCase();
             consume(TokenType.LPAREN);
@@ -190,17 +176,14 @@ public class SQLParser {
     private Query parseAlter() {
         Query q = new Query();
         q.type = "ALTER";
-        consume(TokenType.ALTER);
-        consume(TokenType.TABLE);
+        consume(TokenType.ALTER); consume(TokenType.TABLE);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
         if (peek().type == TokenType.ADD) {
-            consume(TokenType.ADD);
-            q.alterAction = "ADD";
+            consume(TokenType.ADD); q.alterAction = "ADD";
             q.alterColumn = consume(TokenType.IDENT).value.toLowerCase();
             if (!isEOF() && peek().type == TokenType.IDENT) q.alterType = next().value.toUpperCase();
         } else if (peek().type == TokenType.DROP) {
-            consume(TokenType.DROP);
-            consume(TokenType.COLUMN);
+            consume(TokenType.DROP); consume(TokenType.COLUMN);
             q.alterAction = "DROP";
             q.alterColumn = consume(TokenType.IDENT).value.toLowerCase();
         }
@@ -211,8 +194,7 @@ public class SQLParser {
         Query q = new Query();
         consume(TokenType.SHOW);
         if (!isEOF() && peek().type == TokenType.INDEXES) {
-            consume(TokenType.INDEXES);
-            consume(TokenType.ON);
+            consume(TokenType.INDEXES); consume(TokenType.ON);
             q.type = "SHOW_INDEXES";
             q.tableName = consume(TokenType.IDENT).value.toLowerCase();
             return q;
@@ -222,20 +204,44 @@ public class SQLParser {
         return q;
     }
 
+    // Parses WHERE with AND/OR and LIKE/=
     private void parseWhereClause(Query q) {
-        String col = consume(TokenType.IDENT).value.toLowerCase();
-        consume(TokenType.EQUALS);
-        String val = next().value;
-        q.whereColumns.add(col);
-        q.whereValues.add(val);
-        while (!isEOF() && peek().type == TokenType.AND) {
-            consume(TokenType.AND);
-            col = consume(TokenType.IDENT).value.toLowerCase();
-            consume(TokenType.EQUALS);
-            val = next().value;
-            q.whereColumns.add(col);
-            q.whereValues.add(val);
+        parseCondition(q);
+        while (!isEOF() && (peek().type == TokenType.AND || peek().type == TokenType.OR)) {
+            String connector = next().value.toUpperCase();
+            q.whereConnectors.add(connector);
+            parseCondition(q);
         }
+    }
+
+    private void parseCondition(Query q) {
+        String col = consume(TokenType.IDENT).value.toLowerCase();
+        String op = "=";
+        if (peek().type == TokenType.LIKE) { consume(TokenType.LIKE); op = "LIKE"; }
+        else { consume(TokenType.EQUALS); }
+        String val = readValue();
+        q.whereColumns.add(col);
+        q.whereOps.add(op);
+        q.whereValues.add(val);
+    }
+
+    // Read value — handles identifiers, numbers, strings, and % wildcard
+    private String readValue() {
+        StringBuilder sb = new StringBuilder();
+        while (!isEOF() &&
+               peek().type != TokenType.AND &&
+               peek().type != TokenType.OR &&
+               peek().type != TokenType.ORDER &&
+               peek().type != TokenType.LIMIT &&
+               peek().type != TokenType.OFFSET &&
+               peek().type != TokenType.EOF) {
+            sb.append(next().value);
+        }
+        return sb.toString().trim();
+    }
+
+    private boolean isAggregateToken(TokenType t) {
+        return t == TokenType.COUNT || t == TokenType.MAX || t == TokenType.MIN || t == TokenType.SUM || t == TokenType.AVG;
     }
 
     private Token peek() { return tokens.get(pos); }

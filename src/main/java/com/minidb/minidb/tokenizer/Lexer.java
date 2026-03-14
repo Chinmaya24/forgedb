@@ -25,6 +25,7 @@ public class Lexer {
             else if (c == ')') { tokens.add(new Token(TokenType.RPAREN,    ")")); pos++; }
             else if (c == ';') { tokens.add(new Token(TokenType.SEMICOLON, ";")); pos++; }
             else if (c == '.') { tokens.add(new Token(TokenType.DOT,       ".")); pos++; }
+            else if (c == '%') { tokens.add(new Token(TokenType.PERCENT,   "%")); pos++; }
             else if (c == '\'') { tokens.add(readString()); }
             else if (Character.isDigit(c)) { tokens.add(readNumber()); }
             else if (Character.isLetter(c) || c == '_') { tokens.add(readWord()); }
@@ -84,6 +85,7 @@ public class Lexer {
             case "ADD":     return TokenType.ADD;
             case "COLUMN":  return TokenType.COLUMN;
             case "LIMIT":   return TokenType.LIMIT;
+            case "OFFSET":  return TokenType.OFFSET;
             case "INDEX":   return TokenType.INDEX;
             case "INDEXES": return TokenType.INDEXES;
             case "ON":      return TokenType.ON;
@@ -94,6 +96,9 @@ public class Lexer {
             case "MIN":     return TokenType.MIN;
             case "SUM":     return TokenType.SUM;
             case "AVG":     return TokenType.AVG;
+            case "ASC":     return TokenType.ASC;
+            case "DESC":    return TokenType.DESC;
+            case "LIKE":    return TokenType.LIKE;
             default:        return TokenType.IDENT;
         }
     }
