@@ -13,7 +13,6 @@ public class QueryExecutor {
         StorageEngine.load(schemas, tables);
     }
 
-    // Check if a row matches ALL WHERE conditions
     private boolean matchesWhere(List<String> row, List<String> columns, Query q) {
         for (int i = 0; i < q.whereColumns.size(); i++) {
             int colIdx = columns.indexOf(q.whereColumns.get(i));
@@ -26,6 +25,19 @@ public class QueryExecutor {
     }
 
     public String execute(Query q) {
+
+        if (q.type.equalsIgnoreCase("SHOW")) {
+            if (schemas.isEmpty()) {
+                return "No tables found.";
+            }
+            StringBuilder result = new StringBuilder();
+            result.append("Tables\n");
+            result.append("-".repeat(20)).append("\n");
+            for (String tableName : schemas.keySet()) {
+                result.append(tableName).append("\n");
+            }
+            return result.toString();
+        }
 
         if (q.type.equalsIgnoreCase("CREATE")) {
             if (schemas.containsKey(q.tableName)) {
@@ -47,6 +59,44 @@ public class QueryExecutor {
             return "Table '" + q.tableName + "' dropped successfully.";
         }
 
+        if (q.type.equalsIgnoreCase("ALTER")) {
+            if (!schemas.containsKey(q.tableName)) {
+                return "Error: Table '" + q.tableName + "' does not exist.";
+            }
+
+            List<String> columns = schemas.get(q.tableName);
+            List<List<String>> rows = tables.get(q.tableName);
+
+            if (q.alterAction.equalsIgnoreCase("ADD")) {
+                if (columns.contains(q.alterColumn)) {
+                    return "Error: Column '" + q.alterColumn + "' already exists.";
+                }
+                columns.add(q.alterColumn);
+                // Add empty value for new column in every existing row
+                for (List<String> row : rows) {
+                    row.add("");
+                }
+                StorageEngine.save(schemas, tables);
+                return "Column '" + q.alterColumn + "' added to " + q.tableName + ".";
+            }
+
+            if (q.alterAction.equalsIgnoreCase("DROP")) {
+                int colIdx = columns.indexOf(q.alterColumn);
+                if (colIdx == -1) {
+                    return "Error: Column '" + q.alterColumn + "' does not exist.";
+                }
+                columns.remove(colIdx);
+                // Remove that column value from every row
+                for (List<String> row : rows) {
+                    if (colIdx < row.size()) {
+                        row.remove(colIdx);
+                    }
+                }
+                StorageEngine.save(schemas, tables);
+                return "Column '" + q.alterColumn + "' removed from " + q.tableName + ".";
+            }
+        }
+
         if (q.type.equalsIgnoreCase("INSERT")) {
             if (!schemas.containsKey(q.tableName)) {
                 return "Error: Table '" + q.tableName + "' does not exist. Use CREATE TABLE first.";
@@ -62,13 +112,31 @@ public class QueryExecutor {
             }
 
             List<String> columns = schemas.get(q.tableName);
-            List<List<String>> rows = tables.get(q.tableName);
+            List<List<String>> rows = new ArrayList<>(tables.get(q.tableName));
 
-            // Validate WHERE columns exist
+            // Validate WHERE columns
             for (String wc : q.whereColumns) {
                 if (columns.indexOf(wc) == -1) {
                     return "Error: Column '" + wc + "' does not exist.";
                 }
+            }
+
+            // Apply ORDER BY
+            if (q.orderByColumn != null) {
+                int orderIdx = columns.indexOf(q.orderByColumn);
+                if (orderIdx == -1) {
+                    return "Error: Column '" + q.orderByColumn + "' does not exist.";
+                }
+                rows.sort((a, b) -> {
+                    String va = a.get(orderIdx).trim();
+                    String vb = b.get(orderIdx).trim();
+                    // Try numeric sort first
+                    try {
+                        return Double.compare(Double.parseDouble(va), Double.parseDouble(vb));
+                    } catch (NumberFormatException e) {
+                        return va.compareToIgnoreCase(vb);
+                    }
+                });
             }
 
             StringBuilder result = new StringBuilder();

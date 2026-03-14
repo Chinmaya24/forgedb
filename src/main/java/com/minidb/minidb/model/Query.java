@@ -11,4 +11,8 @@ public class Query {
     public String setValue;
     public List<String> whereColumns = new java.util.ArrayList<>();
     public List<String> whereValues  = new java.util.ArrayList<>();
+    public String orderByColumn;
+    public String alterAction;
+    public String alterColumn;
+    public String alterType;
 }

@@ -10,7 +10,10 @@ public class SQLParser {
         Query q = new Query();
         String trimmed = sql.trim();
 
-        if (trimmed.toUpperCase().startsWith("CREATE TABLE")) {
+        if (trimmed.toUpperCase().startsWith("SHOW TABLES")) {
+            q.type = "SHOW";
+        }
+        else if (trimmed.toUpperCase().startsWith("CREATE TABLE")) {
             q.type = "CREATE";
             String upper = trimmed.toUpperCase();
             int tableIdx = upper.indexOf("TABLE") + 5;
@@ -32,12 +35,42 @@ public class SQLParser {
             int tableIdx = upper.indexOf("TABLE") + 5;
             q.tableName = trimmed.substring(tableIdx).trim().toLowerCase();
         }
+        else if (trimmed.toUpperCase().startsWith("ALTER TABLE")) {
+            q.type = "ALTER";
+            String upper = trimmed.toUpperCase();
+
+            // ALTER TABLE <name> ADD <col> <type>
+            // ALTER TABLE <name> DROP COLUMN <col>
+            int tableIdx = upper.indexOf("TABLE") + 5;
+
+            if (upper.contains("DROP COLUMN")) {
+                int dropIdx = upper.indexOf("DROP COLUMN");
+                q.tableName = trimmed.substring(tableIdx, dropIdx).trim().toLowerCase();
+                q.alterAction = "DROP";
+                q.alterColumn = trimmed.substring(dropIdx + 11).trim().toLowerCase();
+            } else if (upper.contains("ADD")) {
+                int addIdx = upper.indexOf("ADD");
+                q.tableName = trimmed.substring(tableIdx, addIdx).trim().toLowerCase();
+                q.alterAction = "ADD";
+                String rest = trimmed.substring(addIdx + 3).trim();
+                String[] parts = rest.split("\\s+");
+                q.alterColumn = parts[0].toLowerCase();
+                q.alterType = parts.length > 1 ? parts[1].toUpperCase() : "TEXT";
+            }
+        }
         else if (trimmed.toUpperCase().startsWith("SELECT")) {
             q.type = "SELECT";
             String upper = trimmed.toUpperCase();
 
-            String[] fromParts = trimmed.split("(?i)FROM");
+            String[] fromParts = trimmed.split("(?i)\\bFROM\\b");
             String afterFrom = fromParts[1].trim();
+
+            // Check ORDER BY first
+            if (upper.contains("ORDER BY")) {
+                String[] orderParts = afterFrom.split("(?i)\\bORDER BY\\b");
+                q.orderByColumn = orderParts[1].trim().toLowerCase();
+                afterFrom = orderParts[0].trim();
+            }
 
             if (upper.contains("WHERE")) {
                 String[] whereParts = afterFrom.split("(?i)\\bWHERE\\b");
@@ -70,7 +103,7 @@ public class SQLParser {
             q.type = "DELETE";
             String upper = trimmed.toUpperCase();
 
-            String[] fromParts = trimmed.split("(?i)FROM");
+            String[] fromParts = trimmed.split("(?i)\\bFROM\\b");
             String afterFrom = fromParts[1].trim();
 
             if (upper.contains("WHERE")) {
@@ -97,7 +130,7 @@ public class SQLParser {
                 setPart = trimmed.substring(setIdx + 3).trim();
             }
 
-            String[] setParts = setPart.split("=");
+            String[] setParts = setPart.split("=", 2);
             q.setColumn = setParts[0].trim().toLowerCase();
             q.setValue = setParts[1].trim();
         }
@@ -108,7 +141,6 @@ public class SQLParser {
         return q;
     }
 
-    // Splits on " AND " with spaces to avoid splitting words containing "and"
     private void parseWhere(String whereClause, Query q) {
         String[] conditions = whereClause.split("(?i)\\s+AND\\s+");
         for (String condition : conditions) {
