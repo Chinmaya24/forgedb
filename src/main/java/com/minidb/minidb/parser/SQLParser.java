@@ -26,6 +26,12 @@ public class SQLParser {
             }
             q.columns = columns;
         }
+        else if (trimmed.toUpperCase().startsWith("DROP TABLE")) {
+            q.type = "DROP";
+            String upper = trimmed.toUpperCase();
+            int tableIdx = upper.indexOf("TABLE") + 5;
+            q.tableName = trimmed.substring(tableIdx).trim().toLowerCase();
+        }
         else if (trimmed.toUpperCase().startsWith("SELECT")) {
             q.type = "SELECT";
             String upper = trimmed.toUpperCase();
@@ -85,16 +91,13 @@ public class SQLParser {
             q.type = "UPDATE";
             String upper = trimmed.toUpperCase();
 
-            // Extract table name: UPDATE <table> SET ...
             int setIdx = upper.indexOf("SET");
             q.tableName = trimmed.substring(6, setIdx).trim().toLowerCase();
 
-            // Extract SET column = value
             int whereIdx = upper.indexOf("WHERE");
             String setPart;
             if (whereIdx != -1) {
                 setPart = trimmed.substring(setIdx + 3, whereIdx).trim();
-                // Extract WHERE column = value
                 String wherePart = trimmed.substring(whereIdx + 5).trim();
                 String[] condParts = wherePart.split("=");
                 q.whereColumn = condParts[0].trim().toLowerCase();
@@ -103,7 +106,6 @@ public class SQLParser {
                 setPart = trimmed.substring(setIdx + 3).trim();
             }
 
-            // Parse SET column = value
             String[] setParts = setPart.split("=");
             q.setColumn = setParts[0].trim().toLowerCase();
             q.setValue = setParts[1].trim();

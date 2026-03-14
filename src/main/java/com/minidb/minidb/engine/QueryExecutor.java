@@ -9,7 +9,6 @@ public class QueryExecutor {
     private static Map<String, List<String>> schemas = new HashMap<>();
     private static Map<String, List<List<String>>> tables = new HashMap<>();
 
-    // Load data from disk when engine starts
     static {
         StorageEngine.load(schemas, tables);
     }
@@ -24,6 +23,16 @@ public class QueryExecutor {
             tables.put(q.tableName, new ArrayList<>());
             StorageEngine.save(schemas, tables);
             return "Table '" + q.tableName + "' created with columns: " + q.columns;
+        }
+
+        if (q.type.equalsIgnoreCase("DROP")) {
+            if (!schemas.containsKey(q.tableName)) {
+                return "Error: Table '" + q.tableName + "' does not exist.";
+            }
+            schemas.remove(q.tableName);
+            tables.remove(q.tableName);
+            StorageEngine.save(schemas, tables);
+            return "Table '" + q.tableName + "' dropped successfully.";
         }
 
         if (q.type.equalsIgnoreCase("INSERT")) {
