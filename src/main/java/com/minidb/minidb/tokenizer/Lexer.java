@@ -1,0 +1,101 @@
+package com.minidb.minidb.tokenizer;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class Lexer {
+
+    private final String input;
+    private int pos = 0;
+
+    public Lexer(String input) {
+        this.input = input.trim();
+    }
+
+    public List<Token> tokenize() {
+        List<Token> tokens = new ArrayList<>();
+
+        while (pos < input.length()) {
+            skipWhitespace();
+            if (pos >= input.length()) break;
+
+            char c = input.charAt(pos);
+
+            if (c == '*')      { tokens.add(new Token(TokenType.STAR,      "*")); pos++; }
+            else if (c == '=') { tokens.add(new Token(TokenType.EQUALS,    "=")); pos++; }
+            else if (c == ',') { tokens.add(new Token(TokenType.COMMA,     ",")); pos++; }
+            else if (c == '(') { tokens.add(new Token(TokenType.LPAREN,    "(")); pos++; }
+            else if (c == ')') { tokens.add(new Token(TokenType.RPAREN,    ")")); pos++; }
+            else if (c == ';') { tokens.add(new Token(TokenType.SEMICOLON, ";")); pos++; }
+            else if (c == '\'') { tokens.add(readString()); }
+            else if (Character.isDigit(c)) { tokens.add(readNumber()); }
+            else if (Character.isLetter(c) || c == '_') { tokens.add(readWord()); }
+            else { tokens.add(new Token(TokenType.UNKNOWN, String.valueOf(c))); pos++; }
+        }
+
+        tokens.add(new Token(TokenType.EOF, ""));
+        return tokens;
+    }
+
+    private void skipWhitespace() {
+        while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
+            pos++;
+        }
+    }
+
+    private Token readNumber() {
+        int start = pos;
+        while (pos < input.length() && Character.isDigit(input.charAt(pos))) {
+            pos++;
+        }
+        return new Token(TokenType.NUMBER, input.substring(start, pos));
+    }
+
+    private Token readString() {
+        pos++; // skip opening quote
+        int start = pos;
+        while (pos < input.length() && input.charAt(pos) != '\'') {
+            pos++;
+        }
+        String value = input.substring(start, pos);
+        pos++; // skip closing quote
+        return new Token(TokenType.STRING, value);
+    }
+
+    private Token readWord() {
+        int start = pos;
+        while (pos < input.length() && (Character.isLetterOrDigit(input.charAt(pos)) || input.charAt(pos) == '_')) {
+            pos++;
+        }
+        String word = input.substring(start, pos);
+        return new Token(classifyWord(word), word);
+    }
+
+    private TokenType classifyWord(String word) {
+        switch (word.toUpperCase()) {
+            case "SELECT":  return TokenType.SELECT;
+            case "INSERT":  return TokenType.INSERT;
+            case "UPDATE":  return TokenType.UPDATE;
+            case "DELETE":  return TokenType.DELETE;
+            case "CREATE":  return TokenType.CREATE;
+            case "DROP":    return TokenType.DROP;
+            case "ALTER":   return TokenType.ALTER;
+            case "SHOW":    return TokenType.SHOW;
+            case "FROM":    return TokenType.FROM;
+            case "INTO":    return TokenType.INTO;
+            case "VALUES":  return TokenType.VALUES;
+            case "SET":     return TokenType.SET;
+            case "WHERE":   return TokenType.WHERE;
+            case "AND":     return TokenType.AND;
+            case "OR":      return TokenType.OR;
+            case "ORDER":   return TokenType.ORDER;
+            case "BY":      return TokenType.BY;
+            case "TABLE":   return TokenType.TABLE;
+            case "TABLES":  return TokenType.TABLES;
+            case "ADD":     return TokenType.ADD;
+            case "COLUMN":  return TokenType.COLUMN;
+            case "LIMIT":   return TokenType.LIMIT;
+            default:        return TokenType.IDENT;
+        }
+    }
+}

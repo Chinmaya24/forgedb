@@ -3,150 +3,218 @@ package com.minidb.minidb.parser;
 import java.util.ArrayList;
 import java.util.List;
 import com.minidb.minidb.model.Query;
+import com.minidb.minidb.tokenizer.Lexer;
+import com.minidb.minidb.tokenizer.Token;
+import com.minidb.minidb.tokenizer.TokenType;
 
 public class SQLParser {
 
+    private List<Token> tokens;
+    private int pos;
+
     public Query parse(String sql) {
+        Lexer lexer = new Lexer(sql);
+        this.tokens = lexer.tokenize();
+        this.pos = 0;
+
         Query q = new Query();
-        String trimmed = sql.trim();
+        Token first = peek();
 
-        if (trimmed.toUpperCase().startsWith("SHOW TABLES")) {
-            q.type = "SHOW";
+        switch (first.type) {
+            case SELECT: return parseSelect();
+            case INSERT: return parseInsert();
+            case UPDATE: return parseUpdate();
+            case DELETE: return parseDelete();
+            case CREATE: return parseCreate();
+            case DROP:   return parseDrop();
+            case ALTER:  return parseAlter();
+            case SHOW:   return parseShow();
+            default:
+                q.type = "UNKNOWN";
+                return q;
         }
-        else if (trimmed.toUpperCase().startsWith("CREATE TABLE")) {
-            q.type = "CREATE";
-            String upper = trimmed.toUpperCase();
-            int tableIdx = upper.indexOf("TABLE") + 5;
-            int openIdx = trimmed.indexOf("(");
-            q.tableName = trimmed.substring(tableIdx, openIdx).trim().toLowerCase();
+    }
 
-            int close = trimmed.lastIndexOf(")");
-            String inside = trimmed.substring(openIdx + 1, close);
-            String[] colDefs = inside.split(",");
-            List<String> columns = new ArrayList<>();
-            for (String col : colDefs) {
-                columns.add(col.trim().split("\\s+")[0].toLowerCase());
-            }
-            q.columns = columns;
-        }
-        else if (trimmed.toUpperCase().startsWith("DROP TABLE")) {
-            q.type = "DROP";
-            String upper = trimmed.toUpperCase();
-            int tableIdx = upper.indexOf("TABLE") + 5;
-            q.tableName = trimmed.substring(tableIdx).trim().toLowerCase();
-        }
-        else if (trimmed.toUpperCase().startsWith("ALTER TABLE")) {
-            q.type = "ALTER";
-            String upper = trimmed.toUpperCase();
+    // SELECT * FROM <table> [WHERE ...] [ORDER BY ...]
+    private Query parseSelect() {
+        Query q = new Query();
+        q.type = "SELECT";
+        consume(TokenType.SELECT);
+        consume(TokenType.STAR);
+        consume(TokenType.FROM);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
 
-            // ALTER TABLE <name> ADD <col> <type>
-            // ALTER TABLE <name> DROP COLUMN <col>
-            int tableIdx = upper.indexOf("TABLE") + 5;
-
-            if (upper.contains("DROP COLUMN")) {
-                int dropIdx = upper.indexOf("DROP COLUMN");
-                q.tableName = trimmed.substring(tableIdx, dropIdx).trim().toLowerCase();
-                q.alterAction = "DROP";
-                q.alterColumn = trimmed.substring(dropIdx + 11).trim().toLowerCase();
-            } else if (upper.contains("ADD")) {
-                int addIdx = upper.indexOf("ADD");
-                q.tableName = trimmed.substring(tableIdx, addIdx).trim().toLowerCase();
-                q.alterAction = "ADD";
-                String rest = trimmed.substring(addIdx + 3).trim();
-                String[] parts = rest.split("\\s+");
-                q.alterColumn = parts[0].toLowerCase();
-                q.alterType = parts.length > 1 ? parts[1].toUpperCase() : "TEXT";
-            }
-        }
-        else if (trimmed.toUpperCase().startsWith("SELECT")) {
-            q.type = "SELECT";
-            String upper = trimmed.toUpperCase();
-
-            String[] fromParts = trimmed.split("(?i)\\bFROM\\b");
-            String afterFrom = fromParts[1].trim();
-
-            // Check ORDER BY first
-            if (upper.contains("ORDER BY")) {
-                String[] orderParts = afterFrom.split("(?i)\\bORDER BY\\b");
-                q.orderByColumn = orderParts[1].trim().toLowerCase();
-                afterFrom = orderParts[0].trim();
-            }
-
-            if (upper.contains("WHERE")) {
-                String[] whereParts = afterFrom.split("(?i)\\bWHERE\\b");
-                q.tableName = whereParts[0].trim().toLowerCase();
-                parseWhere(whereParts[1].trim(), q);
+        while (!isEOF()) {
+            if (peek().type == TokenType.WHERE) {
+                consume(TokenType.WHERE);
+                parseWhereClause(q);
+            } else if (peek().type == TokenType.ORDER) {
+                consume(TokenType.ORDER);
+                consume(TokenType.BY);
+                q.orderByColumn = consume(TokenType.IDENT).value.toLowerCase();
             } else {
-                q.tableName = afterFrom.split("\\s+")[0].toLowerCase();
+                break;
             }
         }
-        else if (trimmed.toUpperCase().startsWith("INSERT")) {
-            q.type = "INSERT";
-            String upper = trimmed.toUpperCase();
-            int intoIdx = upper.indexOf("INTO") + 4;
-            int valuesIdx = upper.indexOf("VALUES");
-            q.tableName = trimmed.substring(intoIdx, valuesIdx).trim().toLowerCase();
-
-            int open = trimmed.indexOf("(");
-            int close = trimmed.lastIndexOf(")");
-            if (open != -1 && close != -1) {
-                String inside = trimmed.substring(open + 1, close);
-                String[] rawValues = inside.split(",");
-                List<String> values = new ArrayList<>();
-                for (String v : rawValues) {
-                    values.add(v.trim());
-                }
-                q.values = values;
-            }
-        }
-        else if (trimmed.toUpperCase().startsWith("DELETE")) {
-            q.type = "DELETE";
-            String upper = trimmed.toUpperCase();
-
-            String[] fromParts = trimmed.split("(?i)\\bFROM\\b");
-            String afterFrom = fromParts[1].trim();
-
-            if (upper.contains("WHERE")) {
-                String[] whereParts = afterFrom.split("(?i)\\bWHERE\\b");
-                q.tableName = whereParts[0].trim().toLowerCase();
-                parseWhere(whereParts[1].trim(), q);
-            } else {
-                q.tableName = afterFrom.split("\\s+")[0].toLowerCase();
-            }
-        }
-        else if (trimmed.toUpperCase().startsWith("UPDATE")) {
-            q.type = "UPDATE";
-            String upper = trimmed.toUpperCase();
-
-            int setIdx = upper.indexOf("SET");
-            q.tableName = trimmed.substring(6, setIdx).trim().toLowerCase();
-
-            int whereIdx = upper.indexOf("WHERE");
-            String setPart;
-            if (whereIdx != -1) {
-                setPart = trimmed.substring(setIdx + 3, whereIdx).trim();
-                parseWhere(trimmed.substring(whereIdx + 5).trim(), q);
-            } else {
-                setPart = trimmed.substring(setIdx + 3).trim();
-            }
-
-            String[] setParts = setPart.split("=", 2);
-            q.setColumn = setParts[0].trim().toLowerCase();
-            q.setValue = setParts[1].trim();
-        }
-        else {
-            q.type = "UNKNOWN";
-        }
-
         return q;
     }
 
-    private void parseWhere(String whereClause, Query q) {
-        String[] conditions = whereClause.split("(?i)\\s+AND\\s+");
-        for (String condition : conditions) {
-            String[] parts = condition.split("=", 2);
-            q.whereColumns.add(parts[0].trim().toLowerCase());
-            q.whereValues.add(parts[1].trim());
+    // INSERT INTO <table> VALUES (v1, v2, ...)
+    private Query parseInsert() {
+        Query q = new Query();
+        q.type = "INSERT";
+        consume(TokenType.INSERT);
+        consume(TokenType.INTO);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+        consume(TokenType.VALUES);
+        consume(TokenType.LPAREN);
+
+        List<String> values = new ArrayList<>();
+        while (peek().type != TokenType.RPAREN && !isEOF()) {
+            Token val = next();
+            values.add(val.value);
+            if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
         }
+        consume(TokenType.RPAREN);
+        q.values = values;
+        return q;
+    }
+
+    // UPDATE <table> SET col = val [WHERE ...]
+    private Query parseUpdate() {
+        Query q = new Query();
+        q.type = "UPDATE";
+        consume(TokenType.UPDATE);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+        consume(TokenType.SET);
+        q.setColumn = consume(TokenType.IDENT).value.toLowerCase();
+        consume(TokenType.EQUALS);
+        q.setValue = next().value;
+
+        if (!isEOF() && peek().type == TokenType.WHERE) {
+            consume(TokenType.WHERE);
+            parseWhereClause(q);
+        }
+        return q;
+    }
+
+    // DELETE FROM <table> [WHERE ...]
+    private Query parseDelete() {
+        Query q = new Query();
+        q.type = "DELETE";
+        consume(TokenType.DELETE);
+        consume(TokenType.FROM);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+
+        if (!isEOF() && peek().type == TokenType.WHERE) {
+            consume(TokenType.WHERE);
+            parseWhereClause(q);
+        }
+        return q;
+    }
+
+    // CREATE TABLE <name> (col1 TYPE, col2 TYPE, ...)
+    private Query parseCreate() {
+        Query q = new Query();
+        q.type = "CREATE";
+        consume(TokenType.CREATE);
+        consume(TokenType.TABLE);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+        consume(TokenType.LPAREN);
+
+        List<String> columns = new ArrayList<>();
+        while (peek().type != TokenType.RPAREN && !isEOF()) {
+            String colName = consume(TokenType.IDENT).value.toLowerCase();
+            columns.add(colName);
+            if (peek().type == TokenType.IDENT) next(); // skip type (INT, TEXT etc)
+            if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
+        }
+        consume(TokenType.RPAREN);
+        q.columns = columns;
+        return q;
+    }
+
+    // DROP TABLE <name>
+    private Query parseDrop() {
+        Query q = new Query();
+        q.type = "DROP";
+        consume(TokenType.DROP);
+        consume(TokenType.TABLE);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+        return q;
+    }
+
+    // ALTER TABLE <name> ADD <col> <type>
+    // ALTER TABLE <name> DROP COLUMN <col>
+    private Query parseAlter() {
+        Query q = new Query();
+        q.type = "ALTER";
+        consume(TokenType.ALTER);
+        consume(TokenType.TABLE);
+        q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+
+        if (peek().type == TokenType.ADD) {
+            consume(TokenType.ADD);
+            q.alterAction = "ADD";
+            q.alterColumn = consume(TokenType.IDENT).value.toLowerCase();
+            if (!isEOF() && peek().type == TokenType.IDENT) {
+                q.alterType = next().value.toUpperCase();
+            }
+        } else if (peek().type == TokenType.DROP) {
+            consume(TokenType.DROP);
+            consume(TokenType.COLUMN);
+            q.alterAction = "DROP";
+            q.alterColumn = consume(TokenType.IDENT).value.toLowerCase();
+        }
+        return q;
+    }
+
+    // SHOW TABLES
+    private Query parseShow() {
+        Query q = new Query();
+        q.type = "SHOW";
+        consume(TokenType.SHOW);
+        consume(TokenType.TABLES);
+        return q;
+    }
+
+    // Parses: col = val [AND col = val ...]
+    private void parseWhereClause(Query q) {
+        String col = consume(TokenType.IDENT).value.toLowerCase();
+        consume(TokenType.EQUALS);
+        String val = next().value;
+        q.whereColumns.add(col);
+        q.whereValues.add(val);
+
+        while (!isEOF() && peek().type == TokenType.AND) {
+            consume(TokenType.AND);
+            col = consume(TokenType.IDENT).value.toLowerCase();
+            consume(TokenType.EQUALS);
+            val = next().value;
+            q.whereColumns.add(col);
+            q.whereValues.add(val);
+        }
+    }
+
+    // Helper methods
+    private Token peek() {
+        return tokens.get(pos);
+    }
+
+    private Token next() {
+        return tokens.get(pos++);
+    }
+
+    private Token consume(TokenType expected) {
+        Token t = tokens.get(pos);
+        if (t.type != expected) {
+            throw new RuntimeException("Expected " + expected + " but got " + t.type + " ('" + t.value + "')");
+        }
+        pos++;
+        return t;
+    }
+
+    private boolean isEOF() {
+        return tokens.get(pos).type == TokenType.EOF;
     }
 }
