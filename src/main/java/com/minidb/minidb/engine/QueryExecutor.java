@@ -2,6 +2,8 @@ package com.minidb.minidb.engine;
 
 import java.util.*;
 import com.minidb.minidb.model.Query;
+import com.minidb.minidb.planner.QueryPlan;
+import com.minidb.minidb.planner.QueryPlanner;
 import com.minidb.minidb.storage.StorageEngine;
 
 public class QueryExecutor {
@@ -26,13 +28,22 @@ public class QueryExecutor {
 
     public String execute(Query q) {
 
+        // Run query planner first
+        QueryPlanner planner = new QueryPlanner(schemas, tables);
+        QueryPlan plan = planner.plan(q);
+
+        // If plan is invalid, return error immediately
+        if (!plan.isValid) {
+            return "Error: " + plan.errorMessage;
+        }
+
+        // Log the plan to console
+        System.out.println("Query Plan: " + plan);
+
         if (q.type.equalsIgnoreCase("SHOW")) {
-            if (schemas.isEmpty()) {
-                return "No tables found.";
-            }
+            if (schemas.isEmpty()) return "No tables found.";
             StringBuilder result = new StringBuilder();
-            result.append("Tables\n");
-            result.append("-".repeat(20)).append("\n");
+            result.append("Tables\n").append("-".repeat(20)).append("\n");
             for (String tableName : schemas.keySet()) {
                 result.append(tableName).append("\n");
             }
@@ -40,9 +51,6 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("CREATE")) {
-            if (schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' already exists.";
-            }
             schemas.put(q.tableName, q.columns);
             tables.put(q.tableName, new ArrayList<>());
             StorageEngine.save(schemas, tables);
@@ -50,9 +58,6 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("DROP")) {
-            if (!schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' does not exist.";
-            }
             schemas.remove(q.tableName);
             tables.remove(q.tableName);
             StorageEngine.save(schemas, tables);
@@ -60,37 +65,20 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("ALTER")) {
-            if (!schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' does not exist.";
-            }
-
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
 
             if (q.alterAction.equalsIgnoreCase("ADD")) {
-                if (columns.contains(q.alterColumn)) {
-                    return "Error: Column '" + q.alterColumn + "' already exists.";
-                }
                 columns.add(q.alterColumn);
-                // Add empty value for new column in every existing row
-                for (List<String> row : rows) {
-                    row.add("");
-                }
+                for (List<String> row : rows) row.add("");
                 StorageEngine.save(schemas, tables);
                 return "Column '" + q.alterColumn + "' added to " + q.tableName + ".";
             }
-
             if (q.alterAction.equalsIgnoreCase("DROP")) {
                 int colIdx = columns.indexOf(q.alterColumn);
-                if (colIdx == -1) {
-                    return "Error: Column '" + q.alterColumn + "' does not exist.";
-                }
                 columns.remove(colIdx);
-                // Remove that column value from every row
                 for (List<String> row : rows) {
-                    if (colIdx < row.size()) {
-                        row.remove(colIdx);
-                    }
+                    if (colIdx < row.size()) row.remove(colIdx);
                 }
                 StorageEngine.save(schemas, tables);
                 return "Column '" + q.alterColumn + "' removed from " + q.tableName + ".";
@@ -98,39 +86,20 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("INSERT")) {
-            if (!schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' does not exist. Use CREATE TABLE first.";
-            }
             tables.get(q.tableName).add(q.values);
             StorageEngine.save(schemas, tables);
             return "Inserted into " + q.tableName + ": " + q.values;
         }
 
         if (q.type.equalsIgnoreCase("SELECT")) {
-            if (!schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' does not exist.";
-            }
-
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = new ArrayList<>(tables.get(q.tableName));
 
-            // Validate WHERE columns
-            for (String wc : q.whereColumns) {
-                if (columns.indexOf(wc) == -1) {
-                    return "Error: Column '" + wc + "' does not exist.";
-                }
-            }
-
-            // Apply ORDER BY
             if (q.orderByColumn != null) {
                 int orderIdx = columns.indexOf(q.orderByColumn);
-                if (orderIdx == -1) {
-                    return "Error: Column '" + q.orderByColumn + "' does not exist.";
-                }
                 rows.sort((a, b) -> {
                     String va = a.get(orderIdx).trim();
                     String vb = b.get(orderIdx).trim();
-                    // Try numeric sort first
                     try {
                         return Double.compare(Double.parseDouble(va), Double.parseDouble(vb));
                     } catch (NumberFormatException e) {
@@ -145,9 +114,7 @@ public class QueryExecutor {
 
             boolean anyRows = false;
             for (List<String> row : rows) {
-                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) {
-                    continue;
-                }
+                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) continue;
                 result.append(String.join(" | ", row)).append("\n");
                 anyRows = true;
             }
@@ -157,10 +124,6 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("DELETE")) {
-            if (!schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' does not exist.";
-            }
-
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
 
@@ -187,23 +150,13 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("UPDATE")) {
-            if (!schemas.containsKey(q.tableName)) {
-                return "Error: Table '" + q.tableName + "' does not exist.";
-            }
-
             List<String> columns = schemas.get(q.tableName);
             List<List<String>> rows = tables.get(q.tableName);
-
             int setIdx = columns.indexOf(q.setColumn);
-            if (setIdx == -1) {
-                return "Error: Column '" + q.setColumn + "' does not exist.";
-            }
 
             int count = 0;
             for (List<String> row : rows) {
-                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) {
-                    continue;
-                }
+                if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, q)) continue;
                 row.set(setIdx, q.setValue);
                 count++;
             }
