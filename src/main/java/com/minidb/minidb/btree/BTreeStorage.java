@@ -3,6 +3,9 @@ package com.minidb.minidb.btree;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class BTreeStorage {
@@ -13,7 +16,7 @@ public class BTreeStorage {
     public static void saveTree(String tableName, List<List<String>> rows) {
         try {
             new File(DATA_DIR).mkdirs();
-            mapper.writeValue(new File(DATA_DIR + tableName + ".json"), rows);
+            writeAtomic(DATA_DIR + tableName + ".json", rows);
         } catch (IOException e) {
             System.out.println("BTree save error: " + e.getMessage());
         }
@@ -38,5 +41,18 @@ public class BTreeStorage {
 
     public static void deleteTree(String tableName) {
         new File(DATA_DIR + tableName + ".json").delete();
+    }
+
+    private static void writeAtomic(String targetPath, Object value) throws IOException {
+        Path target = Path.of(targetPath);
+        Path dir = target.getParent();
+        if (dir != null) Files.createDirectories(dir);
+        Path tmp = Path.of(targetPath + ".tmp");
+        mapper.writeValue(tmp.toFile(), value);
+        try {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 }

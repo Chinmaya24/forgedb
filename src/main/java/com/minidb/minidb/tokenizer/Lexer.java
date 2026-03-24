@@ -18,8 +18,13 @@ public class Lexer {
             skipWhitespace();
             if (pos >= input.length()) break;
             char c = input.charAt(pos);
-            if (c == '*')      { tokens.add(new Token(TokenType.STAR,      "*")); pos++; }
-            else if (c == '=') { tokens.add(new Token(TokenType.EQUALS,    "=")); pos++; }
+            if (c == '*' )     { tokens.add(new Token(TokenType.STAR,      "*")); pos++; }
+            else if (c == '=' ) { tokens.add(new Token(TokenType.EQUALS,    "=")); pos++; }
+            else if (c == '!' && peekNext() == '=') { tokens.add(new Token(TokenType.NOT_EQUALS, "!=")); pos += 2; }
+            else if (c == '>' && peekNext() == '=') { tokens.add(new Token(TokenType.GTE, ">=")); pos += 2; }
+            else if (c == '<' && peekNext() == '=') { tokens.add(new Token(TokenType.LTE, "<=")); pos += 2; }
+            else if (c == '>') { tokens.add(new Token(TokenType.GT, ">")); pos++; }
+            else if (c == '<') { tokens.add(new Token(TokenType.LT, "<")); pos++; }
             else if (c == ',') { tokens.add(new Token(TokenType.COMMA,     ",")); pos++; }
             else if (c == '(') { tokens.add(new Token(TokenType.LPAREN,    "(")); pos++; }
             else if (c == ')') { tokens.add(new Token(TokenType.RPAREN,    ")")); pos++; }
@@ -39,9 +44,18 @@ public class Lexer {
         while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) pos++;
     }
 
+    private char peekNext() {
+        if (pos + 1 >= input.length()) return '\0';
+        return input.charAt(pos + 1);
+    }
+
     private Token readNumber() {
         int start = pos;
         while (pos < input.length() && Character.isDigit(input.charAt(pos))) pos++;
+        if (pos < input.length() && input.charAt(pos) == '.') {
+            pos++;
+            while (pos < input.length() && Character.isDigit(input.charAt(pos))) pos++;
+        }
         return new Token(TokenType.NUMBER, input.substring(start, pos));
     }
 
@@ -71,6 +85,10 @@ public class Lexer {
             case "DROP":    return TokenType.DROP;
             case "ALTER":   return TokenType.ALTER;
             case "SHOW":    return TokenType.SHOW;
+            case "BEGIN":   return TokenType.BEGIN;
+            case "COMMIT":  return TokenType.COMMIT;
+            case "ROLLBACK": return TokenType.ROLLBACK;
+            case "TRANSACTION": return TokenType.TRANSACTION;
             case "FROM":    return TokenType.FROM;
             case "INTO":    return TokenType.INTO;
             case "VALUES":  return TokenType.VALUES;

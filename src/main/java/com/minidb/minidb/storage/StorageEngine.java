@@ -3,21 +3,47 @@ package com.minidb.minidb.storage;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class StorageEngine {
 
     private static final String DATA_DIR = "data/";
+    private static final String TYPES_FILE = "schema_types.json";
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public static void save(Map<String, List<String>> schemas,
                             Map<String, List<List<String>>> tables) {
         try {
             new File(DATA_DIR).mkdirs();
-            mapper.writeValue(new File(DATA_DIR + "schemas.json"), schemas);
-            mapper.writeValue(new File(DATA_DIR + "tables.json"), tables);
+            writeAtomic(DATA_DIR + "schemas.json", schemas);
+            writeAtomic(DATA_DIR + "tables.json", tables);
         } catch (IOException e) {
             System.out.println("Error saving data: " + e.getMessage());
+        }
+    }
+
+    public static void saveTypes(Map<String, List<String>> schemaTypes) {
+        try {
+            new File(DATA_DIR).mkdirs();
+            writeAtomic(DATA_DIR + TYPES_FILE, schemaTypes);
+        } catch (IOException e) {
+            System.out.println("Error saving schema types: " + e.getMessage());
+        }
+    }
+
+    private static void writeAtomic(String targetPath, Object value) throws IOException {
+        Path target = Path.of(targetPath);
+        Path dir = target.getParent();
+        if (dir != null) Files.createDirectories(dir);
+        Path tmp = Path.of(targetPath + ".tmp");
+        mapper.writeValue(tmp.toFile(), value);
+        try {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -47,6 +73,20 @@ public class StorageEngine {
 
         } catch (IOException e) {
             System.out.println("No existing data found, starting fresh.");
+        }
+    }
+
+    public static void loadTypes(Map<String, List<String>> schemaTypes) {
+        try {
+            File typeFile = new File(DATA_DIR + TYPES_FILE);
+            if (!typeFile.exists()) return;
+            Map<String, List<String>> loadedTypes = mapper.readValue(
+                typeFile,
+                new TypeReference<Map<String, List<String>>>() {}
+            );
+            schemaTypes.putAll(loadedTypes);
+        } catch (IOException e) {
+            System.out.println("No schema types found, using defaults.");
         }
     }
 }

@@ -7,6 +7,10 @@ public class Query {
     public String tableName;
     public List<String> values;
     public List<String> columns;
+    public List<String> selectColumns = new java.util.ArrayList<>();
+    public List<String> insertColumns = new java.util.ArrayList<>();
+    public List<String> columnTypes = new java.util.ArrayList<>();
+    public List<String> autoIncrementColumns = new java.util.ArrayList<>();
     public String setColumn;
     public String setValue;
     public List<String> whereColumns = new java.util.ArrayList<>();

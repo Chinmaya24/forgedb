@@ -27,8 +27,33 @@ public class SQLParser {
             case DROP:   return parseDrop();
             case ALTER:  return parseAlter();
             case SHOW:   return parseShow();
+            case BEGIN:  return parseBegin();
+            case COMMIT: return parseCommit();
+            case ROLLBACK: return parseRollback();
             default: q.type = "UNKNOWN"; return q;
         }
+    }
+
+    private Query parseBegin() {
+        Query q = new Query();
+        consume(TokenType.BEGIN);
+        if (!isEOF() && peek().type == TokenType.TRANSACTION) consume(TokenType.TRANSACTION);
+        q.type = "BEGIN";
+        return q;
+    }
+
+    private Query parseCommit() {
+        Query q = new Query();
+        consume(TokenType.COMMIT);
+        q.type = "COMMIT";
+        return q;
+    }
+
+    private Query parseRollback() {
+        Query q = new Query();
+        consume(TokenType.ROLLBACK);
+        q.type = "ROLLBACK";
+        return q;
     }
 
     private Query parseSelect() {
@@ -49,7 +74,15 @@ public class SQLParser {
         }
 
         q.type = "SELECT";
-        consume(TokenType.STAR);
+        if (peek().type == TokenType.STAR) {
+            consume(TokenType.STAR);
+        } else {
+            while (!isEOF()) {
+                q.selectColumns.add(consume(TokenType.IDENT).value.toLowerCase());
+                if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
+                else break;
+            }
+        }
         consume(TokenType.FROM);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
 
@@ -93,6 +126,14 @@ public class SQLParser {
         consume(TokenType.INSERT);
         consume(TokenType.INTO);
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
+        if (peek().type == TokenType.LPAREN) {
+            consume(TokenType.LPAREN);
+            while (peek().type != TokenType.RPAREN && !isEOF()) {
+                q.insertColumns.add(consume(TokenType.IDENT).value.toLowerCase());
+                if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
+            }
+            consume(TokenType.RPAREN);
+        }
         consume(TokenType.VALUES);
         consume(TokenType.LPAREN);
         List<String> values = new ArrayList<>();
@@ -133,9 +174,15 @@ public class SQLParser {
         consume(TokenType.CREATE);
         if (peek().type == TokenType.INDEX) {
             consume(TokenType.INDEX); consume(TokenType.ON);
+            if (peek().type != TokenType.IDENT) {
+                throw new RuntimeException("Invalid CREATE INDEX syntax. Expected table name after ON. Example: CREATE INDEX ON users(name)");
+            }
             q.type = "CREATE_INDEX";
             q.tableName = consume(TokenType.IDENT).value.toLowerCase();
             consume(TokenType.LPAREN);
+            if (peek().type != TokenType.IDENT) {
+                throw new RuntimeException("Invalid CREATE INDEX syntax. Expected column name inside parentheses. Example: CREATE INDEX ON users(name)");
+            }
             q.indexColumn = consume(TokenType.IDENT).value.toLowerCase();
             consume(TokenType.RPAREN);
             return q;
@@ -145,13 +192,42 @@ public class SQLParser {
         q.tableName = consume(TokenType.IDENT).value.toLowerCase();
         consume(TokenType.LPAREN);
         List<String> columns = new ArrayList<>();
+        List<String> types = new ArrayList<>();
+        List<String> autoIncrementColumns = new ArrayList<>();
         while (peek().type != TokenType.RPAREN && !isEOF()) {
-            columns.add(consume(TokenType.IDENT).value.toLowerCase());
-            if (peek().type == TokenType.IDENT) next();
+            String columnName = consume(TokenType.IDENT).value.toLowerCase();
+            columns.add(columnName);
+            String rawType = "TEXT";
+            if (peek().type == TokenType.IDENT) {
+                rawType = next().value.toUpperCase();
+                // Consume optional type params like VARCHAR(50), DECIMAL(10,2).
+                if (peek().type == TokenType.LPAREN) {
+                    int depth = 0;
+                    do {
+                        if (peek().type == TokenType.LPAREN) depth++;
+                        if (peek().type == TokenType.RPAREN) depth--;
+                        next();
+                    } while (depth > 0 && !isEOF());
+                }
+            }
+
+            // Consume optional column constraints (PRIMARY KEY, NOT NULL, UNIQUE, AUTO_INCREMENT, DEFAULT ...).
+            while (peek().type != TokenType.COMMA &&
+                   peek().type != TokenType.RPAREN &&
+                   !isEOF()) {
+                String tokenValue = next().value.toUpperCase();
+                if ("AUTO_INCREMENT".equals(tokenValue)) {
+                    autoIncrementColumns.add(columnName);
+                }
+            }
+
+            types.add(normalizeSqlType(rawType));
             if (peek().type == TokenType.COMMA) consume(TokenType.COMMA);
         }
         consume(TokenType.RPAREN);
         q.columns = columns;
+        q.columnTypes = types;
+        q.autoIncrementColumns = autoIncrementColumns;
         return q;
     }
 
@@ -216,16 +292,22 @@ public class SQLParser {
 
     private void parseCondition(Query q) {
         String col = consume(TokenType.IDENT).value.toLowerCase();
-        String op = "=";
+        String op;
         if (peek().type == TokenType.LIKE) { consume(TokenType.LIKE); op = "LIKE"; }
-        else { consume(TokenType.EQUALS); }
+        else if (peek().type == TokenType.EQUALS) { consume(TokenType.EQUALS); op = "="; }
+        else if (peek().type == TokenType.NOT_EQUALS) { consume(TokenType.NOT_EQUALS); op = "!="; }
+        else if (peek().type == TokenType.GT) { consume(TokenType.GT); op = ">"; }
+        else if (peek().type == TokenType.LT) { consume(TokenType.LT); op = "<"; }
+        else if (peek().type == TokenType.GTE) { consume(TokenType.GTE); op = ">="; }
+        else if (peek().type == TokenType.LTE) { consume(TokenType.LTE); op = "<="; }
+        else throw new RuntimeException("Expected condition operator after column '" + col + "'");
         String val = readValue();
         q.whereColumns.add(col);
         q.whereOps.add(op);
         q.whereValues.add(val);
     }
 
-    // Read value — handles identifiers, numbers, strings, and % wildcard
+    // Read value - handles identifiers, numbers, strings, and % wildcard
     private String readValue() {
         StringBuilder sb = new StringBuilder();
         while (!isEOF() &&
@@ -242,6 +324,17 @@ public class SQLParser {
 
     private boolean isAggregateToken(TokenType t) {
         return t == TokenType.COUNT || t == TokenType.MAX || t == TokenType.MIN || t == TokenType.SUM || t == TokenType.AVG;
+    }
+
+    private String normalizeSqlType(String rawType) {
+        String t = rawType.toUpperCase();
+        if (t.equals("INT") || t.equals("INTEGER")) return "INT";
+        if (t.equals("BIGINT") || t.equals("LONG")) return "LONG";
+        if (t.equals("FLOAT")) return "FLOAT";
+        if (t.equals("DOUBLE") || t.equals("DECIMAL")) return "DOUBLE";
+        // Map richer SQL types into the current engine's TEXT capability.
+        if (t.equals("VARCHAR") || t.equals("CHAR") || t.equals("TEXT") || t.equals("TIMESTAMP") || t.equals("DATE") || t.equals("DATETIME")) return "TEXT";
+        return "TEXT";
     }
 
     private Token peek() { return tokens.get(pos); }

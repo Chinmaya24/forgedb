@@ -130,7 +130,7 @@ public class BTree {
         return deleteFromNode(node.children.get(i), key);
     }
 
-    // Compare keys — numeric if possible, else string
+    // Compare keys - numeric if possible, else string
     private int compareKeys(String a, String b) {
         try {
             return Double.compare(Double.parseDouble(a), Double.parseDouble(b));

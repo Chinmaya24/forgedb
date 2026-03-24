@@ -213,7 +213,7 @@ body { font-family: var(--font-display); background: var(--bg); color: var(--tex
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1v1M5 8v1M1 5H0M10 5H9M2.5 2.5l.7.7M6.8 6.8l.7.7M2.5 7.5l.7-.7M6.8 3.2l.7-.7"/></svg>
             EXPLAIN <span class="quick-tag">plan</span>
           </button>
-          <button class="quick-btn" onclick="setEditor('CREATE INDEX ON ()')">
+          <button class="quick-btn" onclick="setEditor('CREATE INDEX ON users(name)')">
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1h6v2H2zm1 3h4v1H3zm-1 2h6v1H2z"/></svg>
             CREATE INDEX <span class="quick-tag">idx</span>
           </button>
@@ -259,17 +259,17 @@ body { font-family: var(--font-display); background: var(--bg); color: var(--tex
     <div class="stats-bar">
       <div class="stat">
         <span class="stat-label">Tables</span>
-        <span class="stat-val hi" id="stat-tables">ó</span>
+        <span class="stat-val hi" id="stat-tables">ù</span>
       </div>
       <div class="divider"></div>
       <div class="stat">
         <span class="stat-label">Rows</span>
-        <span class="stat-val" id="stat-rows">ó</span>
+        <span class="stat-val" id="stat-rows">ù</span>
       </div>
       <div class="divider"></div>
       <div class="stat">
         <span class="stat-label">Time</span>
-        <span class="stat-val" id="stat-time">ó</span>
+        <span class="stat-val" id="stat-time">ù</span>
       </div>
       <div class="divider"></div>
       <div class="stat">
@@ -281,13 +281,21 @@ body { font-family: var(--font-display); background: var(--bg); color: var(--tex
 </div>
 
 <script>
-const API = 'http://localhost:8080/query';
+const API = 'http://localhost:8080/query?format=json';
 let selectedTable = null;
 let queryCount = 0;
 
 async function sendSQL(sql) {
-  const r = await fetch(API, { method:'POST', headers:{'Content-Type':'text/plain'}, body: sql });
-  return await r.text();
+  const r = await fetch(API, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain','Accept':'application/json'},
+    body: sql
+  });
+  const contentType = r.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return await r.json();
+  }
+  return { raw: await r.text(), status: 'ok' };
 }
 
 async function runSQL(sql) {
@@ -308,7 +316,7 @@ function clearEditor() {
   document.getElementById('results-container').innerHTML = emptyState();
   document.getElementById('status-msg').textContent = '';
   document.getElementById('row-badge').style.display = 'none';
-  document.getElementById('stat-rows').textContent = 'ó';
+  document.getElementById('stat-rows').textContent = 'ù';
   document.getElementById('stat-status').textContent = 'idle';
   document.getElementById('stat-status').style.color = 'var(--text2)';
 }
@@ -354,19 +362,39 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function renderResult(text) {
+function renderResult(payload) {
   const container = document.getElementById('results-container');
   const rowBadge = document.getElementById('row-badge');
   const statRows = document.getElementById('stat-rows');
-  text = text.trim();
+  const text = (payload && payload.raw ? payload.raw : '').trim();
 
   rowBadge.style.display = 'none';
 
-  if (text.startsWith('Error:') || text.startsWith('Invalid')) {
-    container.innerHTML = '<div class="result-error"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a6 6 0 100 12A6 6 0 007 1zm-.75 3.5h1.5v4h-1.5zm0 5h1.5v1.5h-1.5z"/></svg>' + esc(text) + '</div>';
+  const errorText = payload && payload.status === 'error' ? (payload.error || payload.message || text) : null;
+  if (errorText || text.startsWith('Error:') || text.startsWith('Invalid')) {
+    container.innerHTML = '<div class="result-error"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a6 6 0 100 12A6 6 0 007 1zm-.75 3.5h1.5v4h-1.5zm0 5h1.5v1.5h-1.5z"/></svg>' + esc(errorText || text) + '</div>';
     statRows.textContent = '0';
     document.getElementById('stat-status').textContent = 'error';
     document.getElementById('stat-status').style.color = 'var(--red)';
+    return;
+  }
+
+  const jsonTable = payload && Array.isArray(payload.columns) && payload.columns.length > 0;
+  if (jsonTable) {
+    let html = '<div class="table-wrap"><table class="result-table"><thead><tr>';
+    payload.columns.forEach(h => { html += '<th>' + esc(h) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    (payload.rows || []).forEach(cells => {
+      html += '<tr>';
+      cells.forEach(c => { html += '<td>' + esc(c) + '</td>'; });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+    const n = payload.rowCount || (payload.rows || []).length;
+    rowBadge.textContent = n + ' row' + (n !== 1 ? 's' : '');
+    rowBadge.style.display = 'inline-block';
+    statRows.textContent = n;
     return;
   }
 
@@ -404,18 +432,20 @@ function renderResult(text) {
   const successWords = ['Inserted','Updated','Deleted','Table','Column','Index','No rows'];
   if (successWords.some(w => text.startsWith(w))) {
     container.innerHTML = '<div class="result-success"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a6 6 0 100 12A6 6 0 007 1zm3 4l-3.5 4-2-2 1-1 1 1 2.5-3z"/></svg>' + esc(text) + '</div>';
-    statRows.textContent = 'ó';
+    statRows.textContent = 'ù';
     return;
   }
 
   container.innerHTML = '<div class="result-raw">' + esc(text) + '</div>';
-  statRows.textContent = 'ó';
+  statRows.textContent = 'ù';
 }
 
 async function refreshSidebar() {
   try {
     const result = await sendSQL('SHOW TABLES');
-    const lines = result.trim().split('\n').slice(2).filter(l => l.trim());
+    const lines = (result && result.rows && result.rows.length)
+      ? result.rows.map(r => (r[0] || '').trim()).filter(Boolean)
+      : (result.raw || '').trim().split('\n').slice(2).filter(l => l.trim());
     document.getElementById('stat-tables').textContent = lines.length;
     const list = document.getElementById('tables-list');
     if (!lines.length) {
@@ -441,10 +471,11 @@ async function selectTable(name) {
   try {
     const idxResult = await sendSQL('SHOW INDEXES ON ' + name);
     const list = document.getElementById('indexes-list');
-    if (idxResult.includes('No indexes')) {
+    const idxRaw = idxResult.raw || '';
+    if (idxRaw.includes('No indexes')) {
       list.innerHTML = '<div class="index-item" style="color:var(--text3);">no indexes</div>';
     } else {
-      const idxLines = idxResult.trim().split('\n').slice(2).filter(l => l.trim());
+      const idxLines = idxRaw.trim().split('\n').slice(2).filter(l => l.trim());
       list.innerHTML = idxLines.map(l =>
         '<div class="index-item"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style="opacity:0.5"><path d="M1 1h8v2H1zm1 3h6v1H2zm-1 2h8v2H1z"/></svg>' + esc(l.trim()) + '</div>'
       ).join('');

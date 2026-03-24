@@ -59,9 +59,19 @@ public class QueryPlanner {
                     return QueryPlan.invalid("Table '" + q.tableName + "' does not exist.");
                 }
                 List<String> insertCols = schemas.get(q.tableName);
-                if (q.values.size() != insertCols.size()) {
+                if ((q.insertColumns == null || q.insertColumns.isEmpty()) && q.values.size() != insertCols.size()) {
                     return QueryPlan.invalid("Column count mismatch: expected " +
                         insertCols.size() + " values but got " + q.values.size());
+                }
+                if (q.insertColumns != null && !q.insertColumns.isEmpty()) {
+                    if (q.insertColumns.size() != q.values.size()) {
+                        return QueryPlan.invalid("Column list and values count mismatch.");
+                    }
+                    for (String col : q.insertColumns) {
+                        if (!insertCols.contains(col)) {
+                            return QueryPlan.invalid("Column '" + col + "' does not exist.");
+                        }
+                    }
                 }
                 return QueryPlan.valid("INSERT", q.tableName,
                     QueryPlan.ScanType.NO_SCAN, 1,
@@ -80,12 +90,27 @@ public class QueryPlanner {
                 if (q.orderByColumn != null && !cols.contains(q.orderByColumn)) {
                     return QueryPlan.invalid("Column '" + q.orderByColumn + "' does not exist.");
                 }
+                if (q.selectColumns != null && !q.selectColumns.isEmpty()) {
+                    for (String sc : q.selectColumns) {
+                        if (!cols.contains(sc)) {
+                            return QueryPlan.invalid("Column '" + sc + "' does not exist.");
+                        }
+                    }
+                }
                 int rowCount = tables.get(q.tableName).size();
+                boolean indexCandidate = q.whereColumns.size() == 1
+                    && q.whereOps.size() == 1
+                    && "=".equals(q.whereOps.get(0));
+                QueryPlan.ScanType scanType = indexCandidate
+                    ? QueryPlan.ScanType.INDEX_SCAN
+                    : QueryPlan.ScanType.FULL_TABLE_SCAN;
+                int estimated = indexCandidate ? Math.max(1, rowCount / 10) : rowCount;
                 String desc = q.whereColumns.isEmpty()
                     ? "Full scan of '" + q.tableName + "' (" + rowCount + " rows)"
-                    : "Full scan of '" + q.tableName + "' with filter on " + q.whereColumns;
-                return QueryPlan.valid("SELECT", q.tableName,
-                    QueryPlan.ScanType.FULL_TABLE_SCAN, rowCount, desc);
+                    : (indexCandidate
+                        ? "Index candidate scan on '" + q.whereColumns.get(0) + "'"
+                        : "Full scan of '" + q.tableName + "' with filter on " + q.whereColumns);
+                return QueryPlan.valid("SELECT", q.tableName, scanType, estimated, desc);
             }
 
             case "UPDATE": {
@@ -102,8 +127,12 @@ public class QueryPlanner {
                     }
                 }
                 int rowCount = tables.get(q.tableName).size();
+                boolean indexCandidate = q.whereColumns.size() == 1
+                    && q.whereOps.size() == 1
+                    && "=".equals(q.whereOps.get(0));
                 return QueryPlan.valid("UPDATE", q.tableName,
-                    QueryPlan.ScanType.FULL_TABLE_SCAN, rowCount,
+                    indexCandidate ? QueryPlan.ScanType.INDEX_SCAN : QueryPlan.ScanType.FULL_TABLE_SCAN,
+                    indexCandidate ? Math.max(1, rowCount / 10) : rowCount,
                     "Scan '" + q.tableName + "' and update column '" + q.setColumn + "'");
             }
 
@@ -118,8 +147,12 @@ public class QueryPlanner {
                     }
                 }
                 int rowCount = tables.get(q.tableName).size();
+                boolean indexCandidate = q.whereColumns.size() == 1
+                    && q.whereOps.size() == 1
+                    && "=".equals(q.whereOps.get(0));
                 return QueryPlan.valid("DELETE", q.tableName,
-                    QueryPlan.ScanType.FULL_TABLE_SCAN, rowCount,
+                    indexCandidate ? QueryPlan.ScanType.INDEX_SCAN : QueryPlan.ScanType.FULL_TABLE_SCAN,
+                    indexCandidate ? Math.max(1, rowCount / 10) : rowCount,
                     "Scan '" + q.tableName + "' and delete matching rows");
             }
 
