@@ -17,11 +17,20 @@ public class BTree {
         }
     };
 
+    /**
+     * Constructs a new empty B-Tree.
+     */
     public BTree() {
         root = new BTreeNode(true);
     }
 
-    // Insert a row with a given key
+    /**
+     * Inserts a row into the B-Tree with the given key.
+     * Invalidates cache for the key.
+     *
+     * @param key the primary key for the row
+     * @param row the complete row data as a list of strings
+     */
     public void insert(String key, List<String> row) {
         cache.remove(key); // Invalidate cache
         BTreeNode r = root;
@@ -78,7 +87,13 @@ public class BTree {
         }
     }
 
-    // Search for a row by exact key
+    /**
+     * Searches for a row by exact key match.
+     * Uses LRU cache for improved performance.
+     *
+     * @param key the primary key to search for
+     * @return the row data if found, null otherwise
+     */
     public List<String> search(String key) {
         // Check cache first
         List<String> cached = cache.get(key);
@@ -102,7 +117,11 @@ public class BTree {
         return searchNode(node.children.get(i), key);
     }
 
-    // Get all rows in sorted order
+    /**
+     * Returns all rows in the B-Tree in sorted order.
+     *
+     * @return list of all rows
+     */
     public List<List<String>> getAllRows() {
         List<List<String>> result = new ArrayList<>();
         collectRows(root, result);
@@ -117,7 +136,15 @@ public class BTree {
         if (!node.isLeaf) collectRows(node.children.get(node.children.size() - 1), result);
     }
 
-    // Update a row by key
+    /**
+     * Updates a specific column of a row identified by key.
+     * Invalidates cache for the key.
+     *
+     * @param key the primary key of the row to update
+     * @param colIdx the column index to update
+     * @param newValue the new value for the column
+     * @return true if the row was found and updated, false otherwise
+     */
     public boolean update(String key, int colIdx, String newValue) {
         cache.remove(key); // Invalidate cache
         return updateNode(root, key, colIdx, newValue);
@@ -134,7 +161,13 @@ public class BTree {
         return updateNode(node.children.get(i), key, colIdx, newValue);
     }
 
-    // Delete a row by key
+    /**
+     * Deletes a row by its primary key.
+     * Invalidates cache for the key.
+     *
+     * @param key the primary key of the row to delete
+     * @return true if the row was found and deleted, false otherwise
+     */
     public boolean delete(String key) {
         cache.remove(key); // Invalidate cache
         return deleteFromNode(root, key);

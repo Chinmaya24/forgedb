@@ -17,6 +17,47 @@ public class QueryExecutor {
     private static Map<String, BTree> btrees = new HashMap<>();
     private static IndexManager indexManager = new IndexManager();
     private static boolean inTransaction = false;
+    private static List<UndoLogEntry> undoLog = new ArrayList<>();
+    private static Map<String, QueryCacheEntry> queryCache = new LinkedHashMap<>(50, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, QueryCacheEntry> eldest) {
+            return size() > 50; // Cache up to 50 queries
+        }
+    };
+
+    static class QueryCacheEntry {
+        String result;
+        long timestamp;
+        String queryHash;
+
+        QueryCacheEntry(String result, String queryHash) {
+            this.result = result;
+            this.queryHash = queryHash;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > 300000; // 5 minutes
+        }
+    }
+
+    static class UndoLogEntry {
+        String operation; // INSERT, UPDATE, DELETE, CREATE, DROP, etc.
+        String tableName;
+        List<String> oldRow;
+        List<String> newRow;
+        String oldValue;
+        int columnIndex;
+        Map<String, List<String>> oldSchemas;
+        Map<String, List<String>> oldSchemaTypes;
+        Map<String, List<List<String>>> oldTables;
+        Map<String, BTree> oldBtrees;
+
+        UndoLogEntry(String op, String table) {
+            this.operation = op;
+            this.tableName = table;
+        }
+    }
 
     static {
         StorageEngine.load(schemas, tables);
@@ -130,9 +171,26 @@ public class QueryExecutor {
      * @return the execution result as a formatted string
      */
     public String execute(Query q) {
+        // Check cache for SELECT queries
+        if (q.type.equalsIgnoreCase("SELECT") && !inTransaction) {
+            String queryHash = generateQueryHash(q);
+            QueryCacheEntry cached = queryCache.get(queryHash);
+            if (cached != null && !cached.isExpired()) {
+                System.out.println("Query cache hit");
+                return cached.result;
+            }
+        }
+
+        // Invalidate cache for write operations
+        if (q.type.equalsIgnoreCase("INSERT") || q.type.equalsIgnoreCase("UPDATE") ||
+            q.type.equalsIgnoreCase("DELETE") || q.type.equalsIgnoreCase("CREATE") ||
+            q.type.equalsIgnoreCase("DROP") || q.type.equalsIgnoreCase("ALTER")) {
+            queryCache.clear(); // Clear cache on any data modification
+        }
         if (q.type.equalsIgnoreCase("BEGIN")) {
             if (inTransaction) return "Error: Transaction already in progress.";
             inTransaction = true;
+            undoLog.clear(); // Clear any previous undo log
             indexManager.setAutoPersistMeta(false);
             return "Transaction started.";
         }
@@ -141,6 +199,7 @@ public class QueryExecutor {
             if (!inTransaction) return "Error: No active transaction.";
             persistAll();
             inTransaction = false;
+            undoLog.clear(); // Clear undo log on successful commit
             indexManager.setAutoPersistMeta(true);
             indexManager.flushMeta();
             return "Transaction committed.";
@@ -148,7 +207,7 @@ public class QueryExecutor {
 
         if (q.type.equalsIgnoreCase("ROLLBACK")) {
             if (!inTransaction) return "Error: No active transaction.";
-            reloadFromDisk();
+            rollbackTransaction();
             inTransaction = false;
             indexManager.setAutoPersistMeta(true);
             return "Transaction rolled back.";
@@ -239,6 +298,12 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("CREATE")) {
+            // Log undo entry for CREATE (undo is DROP)
+            if (inTransaction) {
+                UndoLogEntry undo = new UndoLogEntry("CREATE", q.tableName);
+                undoLog.add(undo);
+            }
+
             schemas.put(q.tableName, q.columns);
             schemaTypes.put(q.tableName, q.columnTypes == null || q.columnTypes.isEmpty() ? defaultTypesFor(q.columns) : q.columnTypes);
             autoIncrementColumnsByTable.put(q.tableName, new HashSet<>(q.autoIncrementColumns));
@@ -249,6 +314,19 @@ public class QueryExecutor {
         }
 
         if (q.type.equalsIgnoreCase("DROP")) {
+            // Log undo entry for DROP (save old state)
+            if (inTransaction) {
+                UndoLogEntry undo = new UndoLogEntry("DROP", q.tableName);
+                undo.oldSchemas = new HashMap<>(schemas);
+                undo.oldSchemaTypes = new HashMap<>(schemaTypes);
+                undo.oldTables = new HashMap<>();
+                for (Map.Entry<String, List<List<String>>> entry : tables.entrySet()) {
+                    undo.oldTables.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+                }
+                undo.oldBtrees = new HashMap<>(btrees);
+                undoLog.add(undo);
+            }
+
             schemas.remove(q.tableName);
             schemaTypes.remove(q.tableName);
             autoIncrementColumnsByTable.remove(q.tableName);
@@ -316,6 +394,14 @@ public class QueryExecutor {
             tables.get(q.tableName).add(row);
             btrees.get(q.tableName).insert(row.get(0), row);
             indexManager.indexRow(q.tableName, columns, row);
+
+            // Log undo entry for transaction rollback
+            if (inTransaction) {
+                UndoLogEntry undo = new UndoLogEntry("INSERT", q.tableName);
+                undo.newRow = new ArrayList<>(row); // Copy the row
+                undoLog.add(undo);
+            }
+
             persistTable(q.tableName);
             persistAll();
             return "Inserted into " + q.tableName + ": " + row;
@@ -424,7 +510,15 @@ public class QueryExecutor {
                 for (int idx : selectIndexes) projected.add(row.get(idx));
                 result.append(String.join(" | ", projected)).append("\n");
             }
-            return result.toString();
+            String finalResult = result.toString();
+
+            // Cache the result
+            if (!inTransaction) {
+                String queryHash = generateQueryHash(q);
+                queryCache.put(queryHash, new QueryCacheEntry(finalResult, queryHash));
+            }
+
+            return finalResult;
         }
 
         if (q.type.equalsIgnoreCase("DELETE")) {
@@ -443,6 +537,13 @@ public class QueryExecutor {
             while (it.hasNext()) {
                 List<String> row = it.next();
                 if (matchesWhere(row, columns, types, q)) {
+                    // Log undo entry before deleting
+                    if (inTransaction) {
+                        UndoLogEntry undo = new UndoLogEntry("DELETE", q.tableName);
+                        undo.oldRow = new ArrayList<>(row); // Copy before delete
+                        undoLog.add(undo);
+                    }
+
                     btrees.get(q.tableName).delete(row.get(0));
                     indexManager.removeFromIndexes(q.tableName, columns, row);
                     it.remove(); count++;
@@ -468,6 +569,16 @@ public class QueryExecutor {
             int count = 0;
             for (List<String> row : rows) {
                 if (!q.whereColumns.isEmpty() && !matchesWhere(row, columns, types, q)) continue;
+
+                // Log undo entry before making changes
+                if (inTransaction) {
+                    UndoLogEntry undo = new UndoLogEntry("UPDATE", q.tableName);
+                    undo.oldRow = new ArrayList<>(row); // Copy before change
+                    undo.oldValue = row.get(setIdx);
+                    undo.columnIndex = setIdx;
+                    undoLog.add(undo);
+                }
+
                 indexManager.removeFromIndexes(q.tableName, columns, row);
                 row.set(setIdx, q.setValue);
                 btrees.get(q.tableName).update(row.get(0), setIdx, q.setValue);
@@ -505,20 +616,60 @@ public class QueryExecutor {
         indexManager.flushMeta();
     }
 
-    private void reloadFromDisk() {
-        schemas.clear();
-        schemaTypes.clear();
-        autoIncrementColumnsByTable.clear();
-        tables.clear();
-        btrees.clear();
-        StorageEngine.load(schemas, tables);
-        StorageEngine.loadTypes(schemaTypes);
-        for (String tableName : schemas.keySet()) {
-            btrees.put(tableName, BTreeStorage.loadTree(tableName, 0));
-            schemaTypes.computeIfAbsent(tableName, t -> defaultTypesFor(schemas.get(tableName)));
+    private void rollbackTransaction() {
+        // Apply undo log in reverse order
+        for (int i = undoLog.size() - 1; i >= 0; i--) {
+            UndoLogEntry entry = undoLog.get(i);
+            switch (entry.operation) {
+                case "INSERT":
+                    // Remove the inserted row
+                    tables.get(entry.tableName).remove(entry.newRow);
+                    btrees.get(entry.tableName).delete(entry.newRow.get(0));
+                    indexManager.removeFromIndexes(entry.tableName, schemas.get(entry.tableName), entry.newRow);
+                    break;
+                case "UPDATE":
+                    // Restore old value
+                    entry.oldRow.set(entry.columnIndex, entry.oldValue);
+                    btrees.get(entry.tableName).update(entry.oldRow.get(0), entry.columnIndex, entry.oldValue);
+                    break;
+                case "DELETE":
+                    // Restore the deleted row
+                    tables.get(entry.tableName).add(entry.oldRow);
+                    btrees.get(entry.tableName).insert(entry.oldRow.get(0), entry.oldRow);
+                    indexManager.indexRow(entry.tableName, schemas.get(entry.tableName), entry.oldRow);
+                    break;
+                case "CREATE":
+                    // Remove the created table
+                    schemas.remove(entry.tableName);
+                    schemaTypes.remove(entry.tableName);
+                    autoIncrementColumnsByTable.remove(entry.tableName);
+                    tables.remove(entry.tableName);
+                    btrees.remove(entry.tableName);
+                    indexManager.dropAllIndexes(entry.tableName);
+                    break;
+                case "DROP":
+                    // Restore the dropped table
+                    schemas.putAll(entry.oldSchemas);
+                    schemaTypes.putAll(entry.oldSchemaTypes);
+                    tables.putAll(entry.oldTables);
+                    btrees.putAll(entry.oldBtrees);
+                    indexManager.rebuildFromMeta(schemas, tables);
+                    break;
+            }
         }
-        indexManager = new IndexManager();
-        indexManager.rebuildFromMeta(schemas, tables);
+        undoLog.clear();
+    }
+
+    private String generateQueryHash(Query q) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(q.type).append("|").append(q.tableName);
+        if (q.selectColumns != null) sb.append("|").append(q.selectColumns);
+        if (q.whereColumns != null) {
+            sb.append("|").append(q.whereColumns).append("|").append(q.whereOps).append("|").append(q.whereValues);
+        }
+        if (q.orderByColumn != null) sb.append("|").append(q.orderByColumn).append("|").append(q.orderByDirection);
+        sb.append("|").append(q.limit).append("|").append(q.offset);
+        return sb.toString();
     }
 
     private void applyAutoIncrementValues(String tableName, List<String> columns, List<String> row) {

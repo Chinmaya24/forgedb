@@ -1,13 +1,15 @@
 # ForgeDB (MiniDB)
 
-ForgeDB is a lightweight SQL-like database engine built with Java and Spring Boot.  
+ForgeDB is a lightweight SQL-like database engine built with Java and Spring Boot.
 It includes:
 
 - A REST API to execute queries
 - A browser UI (`index.html`) for interactive query testing
 - Basic storage persistence to disk (`data/`)
-- B-Tree-based primary key lookups
+- B-Tree-based primary key lookups with LRU caching
 - Secondary index support
+- Query result caching for improved performance
+- Transaction management with undo logs
 - A simple query planner with `EXPLAIN`
 - Atomic persistence writes for core storage files
 
@@ -23,9 +25,10 @@ It includes:
 - `src/main/java/com/minidb/minidb/api` - REST controllers
 - `src/main/java/com/minidb/minidb/parser` - SQL parser and lexer
 - `src/main/java/com/minidb/minidb/engine` - query execution and index handling
-- `src/main/java/com/minidb/minidb/btree` - B-Tree implementation
+- `src/main/java/com/minidb/minidb/btree` - B-Tree implementation with LRU cache
 - `src/main/java/com/minidb/minidb/storage` - persistence layer
-- `src/main/resources/static/index.html` - web UI
+- `src/main/resources/static/index.html` - web UI with debounced queries
+- `src/test/java/` - comprehensive unit tests
 
 ## Getting Started
 
@@ -146,6 +149,30 @@ SHOW INDEXES ON users;
 EXPLAIN SELECT * FROM users WHERE name = 'Alice';
 ```
 
+## Performance Features
+
+### Query Result Caching
+- Automatic caching of SELECT query results
+- Hash-based cache keys for identical queries
+- Cache invalidation on data modification operations
+- Improved performance for repeated queries
+
+### B-Tree LRU Cache
+- 100-entry LRU cache for frequently accessed rows
+- Reduces disk I/O for hot data
+- Automatic cache invalidation on updates/deletes
+
+### Transaction Management
+- Undo log system for efficient rollbacks
+- No full disk reload required for transaction reversal
+- Support for BEGIN, COMMIT, and ROLLBACK operations
+
+### Frontend Optimizations
+- Debounced query execution (300ms delay)
+- 30-second query timeout protection
+- Enhanced error handling and loading indicators
+- Responsive UI with CSS animations
+
 ## Web UI
 
 Open:
@@ -154,10 +181,13 @@ Open:
 
 The UI includes:
 
-- SQL editor with `Ctrl+Enter` execution
+- SQL editor with `Ctrl+Enter` execution and debounced queries
 - Quick query templates
 - Sidebar for tables and indexes
 - Result rendering for tables, aggregates, and status messages
+- Enhanced error handling with timeout protection
+- Loading indicators and status feedback
+- Responsive design with CSS animations
 
 ## Persistence
 
@@ -178,7 +208,9 @@ All core persistence writes now use an atomic strategy (`.tmp` write + move) to 
 - Other filters default to `FULL_TABLE_SCAN`.
 - Executor uses index lookups for equality filters on indexed columns and returns all matching rows.
 
-## Run Tests
+## Development
+
+### Run Tests
 
 ```powershell
 .\gradlew.bat test
@@ -190,11 +222,40 @@ If your local `build/` folder is locked by another process, run:
 .\gradlew.bat --% -Dorg.gradle.project.buildDir=build_tmp test
 ```
 
+### Test Coverage
+
+The project includes comprehensive unit tests covering:
+- SQL parsing and execution
+- B-Tree operations and caching
+- Query result caching
+- Transaction management
+- CRUD operations
+- WHERE clause filtering
+
+### Building
+
+```powershell
+.\gradlew.bat build
+```
+
 ## CI
 
 A GitHub Actions workflow is included at `.github/workflows/ci.yml` and runs the test suite on pushes and pull requests.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Notes
 
 - This project is intended as an educational mini database engine.
 - SQL support is intentionally simplified and does not aim for full SQL compatibility.
+- Recent enhancements include query caching, transaction undo logs, and frontend optimizations for improved performance and user experience.
