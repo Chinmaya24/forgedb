@@ -143,6 +143,16 @@ body { font-family: var(--font-display); background: var(--bg); color: var(--tex
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* Enhanced animations */
+@keyframes fadeInUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes slideIn { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:translateX(0)} }
+@keyframes glow { 0%,100%{box-shadow: 0 0 20px rgba(124,106,247,0.3)} 50%{box-shadow: 0 0 30px rgba(124,106,247,0.6)} }
+
+.table-item { animation: slideIn 0.2s ease; }
+.quick-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.btn-run:hover { animation: glow 1s infinite; }
 </style>
 </head>
 <body>
@@ -259,17 +269,17 @@ body { font-family: var(--font-display); background: var(--bg); color: var(--tex
     <div class="stats-bar">
       <div class="stat">
         <span class="stat-label">Tables</span>
-        <span class="stat-val hi" id="stat-tables">ù</span>
+        <span class="stat-val hi" id="stat-tables">ÔøΩ</span>
       </div>
       <div class="divider"></div>
       <div class="stat">
         <span class="stat-label">Rows</span>
-        <span class="stat-val" id="stat-rows">ù</span>
+        <span class="stat-val" id="stat-rows">ÔøΩ</span>
       </div>
       <div class="divider"></div>
       <div class="stat">
         <span class="stat-label">Time</span>
-        <span class="stat-val" id="stat-time">ù</span>
+        <span class="stat-val" id="stat-time">ÔøΩ</span>
       </div>
       <div class="divider"></div>
       <div class="stat">
@@ -290,6 +300,8 @@ async function sendSQL(sql) {
     method:'POST',
     headers:{'Content-Type':'text/plain','Accept':'application/json'},
     body: sql
+  }).catch(e => {
+    throw new Error('Network error: Unable to connect to database server');
   });
   const contentType = r.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -316,7 +328,7 @@ function clearEditor() {
   document.getElementById('results-container').innerHTML = emptyState();
   document.getElementById('status-msg').textContent = '';
   document.getElementById('row-badge').style.display = 'none';
-  document.getElementById('stat-rows').textContent = 'ù';
+  document.getElementById('stat-rows').textContent = 'ÔøΩ';
   document.getElementById('stat-status').textContent = 'idle';
   document.getElementById('stat-status').style.color = 'var(--text2)';
 }
@@ -432,20 +444,18 @@ function renderResult(payload) {
   const successWords = ['Inserted','Updated','Deleted','Table','Column','Index','No rows'];
   if (successWords.some(w => text.startsWith(w))) {
     container.innerHTML = '<div class="result-success"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a6 6 0 100 12A6 6 0 007 1zm3 4l-3.5 4-2-2 1-1 1 1 2.5-3z"/></svg>' + esc(text) + '</div>';
-    statRows.textContent = 'ù';
+    statRows.textContent = 'ÔøΩ';
     return;
   }
 
   container.innerHTML = '<div class="result-raw">' + esc(text) + '</div>';
-  statRows.textContent = 'ù';
+  statRows.textContent = 'ÔøΩ';
 }
 
 async function refreshSidebar() {
   try {
-    const result = await sendSQL('SHOW TABLES');
-    const lines = (result && result.rows && result.rows.length)
-      ? result.rows.map(r => (r[0] || '').trim()).filter(Boolean)
-      : (result.raw || '').trim().split('\n').slice(2).filter(l => l.trim());
+    const response = await fetch('/api/tables');
+    const lines = await response.json();
     document.getElementById('stat-tables').textContent = lines.length;
     const list = document.getElementById('tables-list');
     if (!lines.length) {
@@ -453,14 +463,16 @@ async function refreshSidebar() {
       return;
     }
     list.innerHTML = lines.map(t => {
-      const name = t.trim();
+      const name = t;
       const active = selectedTable === name ? ' active' : '';
       return '<div class="table-item' + active + '" onclick="selectTable(\'' + name + '\')">'
         + '<svg class="table-icon" viewBox="0 0 14 14" fill="currentColor"><path d="M1 2h12v3H1zm0 4h12v3H1zm0 4h12v2H1z"/></svg>'
         + name
         + '</div>';
     }).join('');
-  } catch(e) {}
+  } catch(e) {
+    console.error('Failed to refresh sidebar:', e);
+  }
 }
 
 async function selectTable(name) {

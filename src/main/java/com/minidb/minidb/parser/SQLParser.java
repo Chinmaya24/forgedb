@@ -7,11 +7,22 @@ import com.minidb.minidb.tokenizer.Lexer;
 import com.minidb.minidb.tokenizer.Token;
 import com.minidb.minidb.tokenizer.TokenType;
 
+/**
+ * SQL parser that converts SQL strings into Query objects.
+ * Supports SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, SHOW, and transaction commands.
+ */
 public class SQLParser {
 
     private List<Token> tokens;
     private int pos;
 
+    /**
+     * Parses a SQL string into a Query object.
+     *
+     * @param sql the SQL query string to parse
+     * @return the parsed Query object
+     * @throws RuntimeException if the SQL syntax is invalid
+     */
     public Query parse(String sql) {
         Lexer lexer = new Lexer(sql);
         this.tokens = lexer.tokenize();

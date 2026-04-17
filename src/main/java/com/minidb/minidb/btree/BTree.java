@@ -2,10 +2,20 @@ package com.minidb.minidb.btree;
 
 import java.util.*;
 
+/**
+ * B-Tree implementation for efficient storage and retrieval of database rows.
+ * Supports insert, search, update, and delete operations with O(log n) complexity.
+ */
 public class BTree {
 
     private BTreeNode root;
     private final int ORDER = BTreeNode.ORDER;
+    private final Map<String, List<String>> cache = new LinkedHashMap<>(100, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, List<String>> eldest) {
+            return size() > 100; // LRU cache with 100 entries
+        }
+    };
 
     public BTree() {
         root = new BTreeNode(true);
@@ -13,6 +23,7 @@ public class BTree {
 
     // Insert a row with a given key
     public void insert(String key, List<String> row) {
+        cache.remove(key); // Invalidate cache
         BTreeNode r = root;
         if (r.keys.size() == 2 * ORDER - 1) {
             BTreeNode newRoot = new BTreeNode(false);
@@ -69,7 +80,16 @@ public class BTree {
 
     // Search for a row by exact key
     public List<String> search(String key) {
-        return searchNode(root, key);
+        // Check cache first
+        List<String> cached = cache.get(key);
+        if (cached != null) {
+            return new ArrayList<>(cached); // Return copy to prevent external modification
+        }
+        List<String> result = searchNode(root, key);
+        if (result != null) {
+            cache.put(key, new ArrayList<>(result)); // Cache a copy
+        }
+        return result;
     }
 
     private List<String> searchNode(BTreeNode node, String key) {
@@ -99,6 +119,7 @@ public class BTree {
 
     // Update a row by key
     public boolean update(String key, int colIdx, String newValue) {
+        cache.remove(key); // Invalidate cache
         return updateNode(root, key, colIdx, newValue);
     }
 
@@ -115,6 +136,7 @@ public class BTree {
 
     // Delete a row by key
     public boolean delete(String key) {
+        cache.remove(key); // Invalidate cache
         return deleteFromNode(root, key);
     }
 

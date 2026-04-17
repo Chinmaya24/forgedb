@@ -10,6 +10,10 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
+/**
+ * REST controller for handling SQL query execution in ForgeDB.
+ * Provides endpoints for running SQL queries with support for both text and JSON responses.
+ */
 @RestController
 @RequestMapping("/query")
 public class QueryController {
@@ -17,6 +21,15 @@ public class QueryController {
     SQLParser parser = new SQLParser();
     QueryExecutor executor = new QueryExecutor();
 
+    /**
+     * Executes a SQL query and returns the result.
+     * Supports both plain text and JSON response formats based on Accept header or format parameter.
+     *
+     * @param sql the SQL query string to execute
+     * @param accept the Accept header value for content negotiation
+     * @param format optional format parameter ("json" for JSON response)
+     * @return the query result as a string or QueryResponse object
+     */
     @PostMapping(produces = {MediaType.TEXT_PLAIN_VALUE, MediaType.APPLICATION_JSON_VALUE})
     public Object runQuery(
             @RequestBody String sql,
@@ -61,7 +74,15 @@ public class QueryController {
         }
     }
 
-    private QueryResponse toJsonResponse(String text, long executionMs) {
+    /**
+     * Returns a list of all tables in the database.
+     *
+     * @return list of table names
+     */
+    @GetMapping("/tables")
+    public List<String> getTables() {
+        return new ArrayList<>(executor.getSchemas().keySet());
+    }
         QueryResponse response = new QueryResponse();
         response.raw = text;
         response.executionTimeMs = executionMs;

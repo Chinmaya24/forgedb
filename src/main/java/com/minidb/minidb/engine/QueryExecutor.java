@@ -114,7 +114,14 @@ public class QueryExecutor {
         return String.format("%.2f", val);
     }
 
-    public String execute(Query q) {
+    /**
+     * Gets the current schemas map.
+     *
+     * @return map of table names to column lists
+     */
+    public Map<String, List<String>> getSchemas() {
+        return schemas;
+    }
         if (q.type.equalsIgnoreCase("BEGIN")) {
             if (inTransaction) return "Error: Transaction already in progress.";
             inTransaction = true;
