@@ -83,6 +83,16 @@ public class QueryController {
     public List<String> getTables() {
         return new ArrayList<>(executor.getSchemas().keySet());
     }
+
+    /**
+     * Converts a text query result into a structured JSON response.
+     * Parses tabular results into columns and rows arrays.
+     *
+     * @param text the raw text result from query execution
+     * @param executionMs the execution time in milliseconds
+     * @return a QueryResponse object with parsed data
+     */
+    private QueryResponse toJsonResponse(String text, long executionMs) {
         QueryResponse response = new QueryResponse();
         response.raw = text;
         response.executionTimeMs = executionMs;

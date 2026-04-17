@@ -122,6 +122,14 @@ public class QueryExecutor {
     public Map<String, List<String>> getSchemas() {
         return schemas;
     }
+
+    /**
+     * Executes a parsed Query object and returns the result as a string.
+     *
+     * @param q the parsed Query object to execute
+     * @return the execution result as a formatted string
+     */
+    public String execute(Query q) {
         if (q.type.equalsIgnoreCase("BEGIN")) {
             if (inTransaction) return "Error: Transaction already in progress.";
             inTransaction = true;
